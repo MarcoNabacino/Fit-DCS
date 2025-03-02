@@ -1,0 +1,50 @@
+import numpy as np
+
+
+def msd_brownian(tau: np.ndarray, db: float) -> np.ndarray:
+    """
+    Calculates the mean-square displacement for a Brownian motion forward.
+
+    :param tau: Vector of time delays. [s]
+    :param db: Diffusion coefficient. [cm^2/s]
+    :return: The mean-square displacement. A vector the same length as tau. [cm^2]
+    """
+    return 6 * db * tau
+
+
+def msd_ballistic(tau: np.ndarray, v_ms: float) -> np.ndarray:
+    """
+    Calculates the mean-square displacement for a ballistic motion forward.
+
+    :param tau: Vector of time delays. [s]
+    :param v_ms: Mean square speed of the scatterers. [cm/s]
+    :return: The mean-square displacement. A vector the same length as tau. [cm^2]
+    """
+    return v_ms * tau ** 2
+
+
+def msd_hybrid(tau: np.ndarray, db: float, v_ms: float) -> np.ndarray:
+    """
+    Calculates the mean-square displacement for a hybrid (Brownian + ballistic) forward.
+
+    :param tau: Vector of time delays. [s]
+    :param db: Diffusion coefficient. [cm^2/s]
+    :param v_ms: Mean square speed of the scatterers. [cm/s]
+    :return: The mean-square displacement. A vector the same length as tau. [cm^2]
+    """
+    return 6 * db * tau + v_ms * tau ** 2
+
+
+def effective_reflectance(n: float) -> float:
+    """
+    Calculates the effective reflectance of a semi-infinite medium, based on a series expansion of the refractive
+    index. The formula is taken from [1].
+
+    [1] Wang, Q. et al. (2024). "A comprehensive overview of diffuse correlation spectroscopy: Theoretical framework,
+    recent advances in hardware, analysis, and applications."
+
+    :param n: Ratio of the refractive index of the medium to the refractive index of the surrounding medium
+        (typically air).
+    :return: The effective reflectance of the medium.
+    """
+    return - 1.440 / n**2 + 0.710 / n + 0.668 + 0.0636 * n

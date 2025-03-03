@@ -5,6 +5,7 @@ import forward.common as common
 import forward.homogeneous_semi_inf as hsi
 import scipy.optimize as opt
 
+
 class MSDModel:
     """
     A class for calculating the mean-square displacement (MSD) of the scatterers based on a model.
@@ -27,9 +28,7 @@ class MSDModel:
         # Check that param_init contains initial values for all parameters of the model, that is, the keys of param_init
         # should match the params of the model.
         if set(param_init.keys()) == set(self.params):
-            # Scale the parameters so that they are in the correct order of magnitude (around 1).
-            scale_array = np.fromiter(self.params_scale.values(), dtype=float)
-            self.param_init = {param: param_init[param] / scale_array[i] for i, param in enumerate(self.params)}
+            self.param_init = param_init
         else:
             raise ValueError("param_init should contain initial values for all parameters of the model")
 
@@ -37,15 +36,7 @@ class MSDModel:
         # the keys of param_bounds should match the params of the model.
         if param_bounds is not None:
             if set(param_bounds.keys()) == set(self.params):
-                # Scale the bounds to match the scaled parameters.
-                scale_array = np.fromiter(self.params_scale.values(), dtype=float)
-                self.param_bounds = {}
-                for param in self.params:
-                    if param_bounds[param] is not None:
-                        self.param_bounds[param] = (
-                            param_bounds[param][0] / scale_array[self.params.index(param)],
-                            param_bounds[param][1] / scale_array[self.params.index(param)]
-                        )
+                self.param_bounds = param_bounds
             else:
                 raise ValueError("param_bounds should contain bounds for all parameters of the model")
         else:
@@ -110,7 +101,8 @@ class BetaCalculator:
             if "tau_lims" in kwargs:
                 # Check that tau_lims is an ordered pair of floats
                 if isinstance(kwargs["tau_lims"], tuple) and len(kwargs["tau_lims"]) == 2:
-                    if (all(isinstance(x, (float, int)) for x in kwargs["tau_lims"])) and kwargs["tau_lims"][0] < kwargs["tau_lims"][1]:
+                    if (all(isinstance(x, (float, int)) for x in kwargs["tau_lims"])) and kwargs["tau_lims"][0] < \
+                            kwargs["tau_lims"][1]:
                         self.tau_lims = kwargs["tau_lims"]
                     else:
                         raise ValueError("tau_lims should be an ordered pair of floats")
@@ -130,7 +122,8 @@ class BetaCalculator:
             if "beta_bounds" in kwargs:
                 # Check that beta_bounds is an ordered pair of floats
                 if isinstance(kwargs["beta_bounds"], tuple) and len(kwargs["beta_bounds"]) == 2:
-                    if (all(isinstance(x, (float, int)) for x in kwargs["beta_bounds"])) and kwargs["beta_bounds"][0] < kwargs["beta_bounds"][1]:
+                    if (all(isinstance(x, (float, int)) for x in kwargs["beta_bounds"])) and kwargs["beta_bounds"][0] < \
+                            kwargs["beta_bounds"][1]:
                         self.beta_bounds = kwargs["beta_bounds"]
                     else:
                         raise ValueError("beta_bounds should be an ordered pair of floats")
@@ -237,23 +230,24 @@ class FitHomogeneousSemiInf:
         self.beta_calculator = beta_calculator
         self.g1_lim_fit = g1_lim_fit
 
+        # Initialize the beta and fitted_params attribute to None
+        self.beta = None
+        self.fitted_params = None
+
     def __len__(self):
         """
         Returns the number of measurements.
         """
         return self.g2_norm.shape[1]
 
-    def fit(self) -> Dict:
+    def fit(self):
         """
-        Fits the model to the data.
-
-        :return: A dictionary with the fitted parameters of the model. The keys are the parameter names and the values
-            are arrays of the same length as the number of measurements.
+        Fits the model to the data
         """
 
         if self.beta_calculator.mode in ["fixed", "raw"]:
             # Initialize arrays to store the fitted parameters values
-            fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
+            self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
 
             self._calc_beta()
             self._calc_g1_norm()
@@ -262,11 +256,9 @@ class FitHomogeneousSemiInf:
                 # Fit the MSD params and store the results in fitted_params
                 curr_params = self._fit_msd_params(i)
                 for param in curr_params:
-                    fitted_params[param][i] = curr_params[param]
-        elif self.beta_calculator.mode == "raw":
+                    self.fitted_params[param][i] = curr_params[param]
+        elif self.beta_calculator.mode == "fit":
             pass
-
-        return fitted_params
 
     def _calc_beta(self):
         """
@@ -279,7 +271,7 @@ class FitHomogeneousSemiInf:
         :return: None
         """
         if self.beta_calculator.mode == "fixed":
-            self.beta = np.full((len(self), ), self.beta_calculator.beta_fixed)
+            self.beta = np.full((len(self),), self.beta_calculator.beta_fixed)
         elif self.beta_calculator.mode == "raw":
             idx_first = np.argmax(self.tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
             idx_last = np.argmax(self.tau > self.beta_calculator.tau_lims[1])  # First index after the upper limit
@@ -309,6 +301,7 @@ class FitHomogeneousSemiInf:
         # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
         # optimization algorithm.
         scale_array = np.fromiter(self.msd_model.params_scale.values(), dtype=float)
+
         # Define the objective function for the fit
         def objective(params: np.ndarray) -> float:
             """
@@ -317,16 +310,21 @@ class FitHomogeneousSemiInf:
                 the order of the params attribute of the msd_model.
             :return: The sum of the squared differences between the model and the data.
             """
-            params *= scale_array # Scale the parameters back to their original values
+            params *= scale_array  # Scale the parameters back to their original values
             msd = self.msd_model.msd_fn(tau_fit, *params)
             g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
             return np.sum((g1_norm - g1_norm_fit) ** 2)
 
         # Perform the fit
+        scaled_x0 = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
+        bounds = list(self.msd_model.param_bounds.values())
+        # Scale the bounds, but set to None if the original bound is None
+        scaled_bounds = [(None if bound[0] is None else bound[0] / scale_array[i],
+                          None if bound[1] is None else bound[1] / scale_array[i]) for i, bound in enumerate(bounds)]
         res = opt.minimize(
             fun=objective,
-            x0=np.fromiter(self.msd_model.param_init.values(), dtype=float),
-            bounds=list(self.msd_model.param_bounds.values())
+            x0=scaled_x0,
+            bounds=scaled_bounds
         )
 
         if not res.success:
@@ -344,7 +342,7 @@ class FitHomogeneousSemiInf:
         """
         if self.tau_lims_fit is not None and self.g1_lim_fit is not None:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
-            idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1]) # First index after the upper limit
+            idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
             idx_last_g1 = np.argmax(self.g1_norm[:, i] < self.g1_lim_fit)  # First index after g1_lim_fit
             idx_last = min(idx_last_tau, idx_last_g1)
             if idx_first >= idx_last:

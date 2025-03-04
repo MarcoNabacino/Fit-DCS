@@ -1,9 +1,10 @@
 from typing import Dict
-
 import numpy as np
 import forward.common as common
 import forward.homogeneous_semi_inf as hsi
 import scipy.optimize as opt
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 class MSDModel:
@@ -159,7 +160,8 @@ class FitHomogeneousSemiInf:
             msd_model: MSDModel,
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple | None = None,
-            g2_lim_fit: float | None = None
+            g2_lim_fit: float | None = None,
+            plot_interval: int | None = None,
     ):
         """
         Class constructor.
@@ -186,6 +188,8 @@ class FitHomogeneousSemiInf:
             values greater than g2_lim_fit. If both tau_lims_fit and g1_lim_fit are provided, the fitting is done
             starting from tau_lims_fit[0] and up to the minimum of tau_lims_fit[1] and the first time delay where
             g2_norm is greater than g2_lim_fit.
+        :param plot_interval: If not None, a plot showing the g2_norm curves and the fitted curves is displayed every
+            plot_interval measurements.
         """
 
         # Check that the number of rows in g2_norm is the same as the length of tau
@@ -233,6 +237,7 @@ class FitHomogeneousSemiInf:
         self.msd_model = msd_model
         self.beta_calculator = beta_calculator
         self.g2_lim_fit = g2_lim_fit
+        self.plot_interval = plot_interval if plot_interval is not None else 0
 
         # Initialize the beta and fitted_params attribute to None
         self.beta = None
@@ -244,9 +249,10 @@ class FitHomogeneousSemiInf:
         """
         return self.g2_norm.shape[1]
 
-    def fit(self):
+    def fit(self) -> pd.DataFrame:
         """
-        Fits the model to the data and stores the fitted parameters in the fitted_params attribute.
+        Fits the model to the data and stores the beta and fitted parameters in the beta and fitted_params attribute.
+        :return: A DataFrame with beta and the fitted parameters for each measurement.
         """
 
         if self.beta_calculator.mode in ["fixed", "raw"]:
@@ -261,6 +267,10 @@ class FitHomogeneousSemiInf:
                 curr_params = self._fit_msd_params(i)
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
+
+                if self.plot_interval > 0 and i % self.plot_interval == 0:
+                    fig = self._plot_fit(i)
+                    plt.show(fig)
         elif self.beta_calculator.mode == "fit":
             # Initialize arrays to store the fitted parameters values
             self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
@@ -269,9 +279,18 @@ class FitHomogeneousSemiInf:
             for i in range(len(self)):
                 # Fit both the MSD params and beta and store the results in fitted_params and beta
                 curr_params, curr_beta = self._fit_beta_and_msd_params(i)
-                self.beta[i] = curr_beta
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
+                self.beta[i] = curr_beta
+                if self.plot_interval > 0 and i % self.plot_interval == 0:
+                    fig = self._plot_fit(i)
+                    plt.show(fig)
+
+       # Create a DataFrame with the fitted parameters and beta
+        df = pd.DataFrame(self.fitted_params)
+        df["beta"] = self.beta
+
+        return df
 
     def _calc_beta(self):
         """
@@ -436,3 +455,31 @@ class FitHomogeneousSemiInf:
             fitted_beta = res.x[-1]
 
         return fitted_params, fitted_beta
+
+    def _plot_fit(self, i: int) -> plt.figure:
+        """
+        Plots the g2_norm curve and the fitted curve for a single measurement, also displaying the fitting interval
+        :param i: The index of the measurement to plot
+        :return: The figure object
+        """
+        idx_first, idx_last = self._crop_to_fit_interval(i)
+        tau_fit = self.tau[idx_first:idx_last]
+        # Get the fitted params for measurement i
+        fitted_params = {param: self.fitted_params[param][i] for param in self.msd_model.params}
+        msd = self.msd_model.msd_fn(tau_fit, *fitted_params.values())
+        g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
+        g2_norm = 1 + self.beta[i] * g1_norm ** 2
+
+        f = plt.figure()
+        plt.semilogx(self.tau, self.g2_norm[:, i], marker='.', linestyle='none', label="Data")
+        plt.semilogx(tau_fit, g2_norm, label="Fit")
+        text = f"β = {self.beta[i]:.2f}\n" + "\n".join([f"{k} = {v:.2e}" for k, v in fitted_params.items()])
+        plt.annotate(text, xy=(0.05, 0.20), xycoords="axes fraction", fontsize=10,
+                     verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
+
+        plt.title(f"Measurement {i}")
+        plt.xlabel(r"$\tau$ [s]")
+        plt.ylabel(r"$g^{(2)}(\tau)$")
+        plt.legend()
+
+        return f

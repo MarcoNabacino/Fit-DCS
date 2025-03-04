@@ -45,7 +45,7 @@ class MSDModel:
     def _get_msd_fn(self):
         """
         Sets the mean-square displacement function based on the model name, as well as the parameters of the model that
-        will be fit and their scale.
+        will be fit and their scale and offset values.
         """
         if self.model_name == "brownian":
             msd_fn = common.msd_brownian
@@ -80,8 +80,9 @@ class BetaCalculator:
         :param kwargs: Additional arguments depending on the mode. Specific arguments are:
             - If mode is "fixed", then beta_fixed should be a float.
             - If mode is "raw", then tau_lims should be an ordered pair of floats.
-            - If mode is "fit", then beta_init should be a float and beta_bounds (optional) should be an ordered
-                pair of floats or None.
+            - If mode is "fit", then beta_init should be a float and beta_bounds (optional) should be a 2-tuple
+                specifying the lower and upper bounds of the beta parameter. Use None rather than inf for no bound.
+                If beta_bounds is not provided, the default bounds are (None, None).
         """
 
         # Check mode and set the corresponding attributes
@@ -120,17 +121,20 @@ class BetaCalculator:
             else:
                 raise ValueError("beta_init should be provided for the 'fit' mode")
             if "beta_bounds" in kwargs:
-                # Check that beta_bounds is an ordered pair of floats
+                # If beta_bounds is a 2-tuple, check that the elements are floats or None.
                 if isinstance(kwargs["beta_bounds"], tuple) and len(kwargs["beta_bounds"]) == 2:
-                    if (all(isinstance(x, (float, int)) for x in kwargs["beta_bounds"])) and kwargs["beta_bounds"][0] < \
-                            kwargs["beta_bounds"][1]:
+                    if all(isinstance(x, (float, int, type(None))) for x in kwargs["beta_bounds"]):
+                        # If both elements are floats, check that the bounds are in the correct order
+                        if kwargs["beta_bounds"][0] is not None and kwargs["beta_bounds"][1] is not None:
+                            if kwargs["beta_bounds"][0] >= kwargs["beta_bounds"][1]:
+                                raise ValueError("The lower bound of beta_bounds should be less than the upper bound")
                         self.beta_bounds = kwargs["beta_bounds"]
                     else:
-                        raise ValueError("beta_bounds should be an ordered pair of floats")
+                        raise ValueError("beta_bounds should be a 2-tuple of floats or None")
                 else:
-                    raise ValueError("beta_bounds should be an ordered pair of floats")
+                    raise ValueError("beta_bounds should be a 2-tuple")
             else:
-                self.beta_bounds = None
+                self.beta_bounds = (None, None)
         else:
             raise ValueError(f"Unknown mode: {mode}. Choose from 'fixed', 'raw', or 'fit'")
 
@@ -155,7 +159,7 @@ class FitHomogeneousSemiInf:
             msd_model: MSDModel,
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple | None = None,
-            g1_lim_fit: float | None = None
+            g2_lim_fit: float | None = None
     ):
         """
         Class constructor.
@@ -178,10 +182,10 @@ class FitHomogeneousSemiInf:
         :param beta_calculator: An instance of the BetaCalculator class.
         :param tau_lims_fit: Ordered pair of floats defining the lower and upper limits of the time delays used for
             fitting. If None, the entire tau range is used.
-        :param g1_lim_fit: If not None, the portion of the g1_norm curve that is used for fitting is limited to the
-            values greater than g1_lim_fit. If both tau_lims_fit and g1_lim_fit are provided, the fitting is done
+        :param g2_lim_fit: If not None, the portion of the g1_norm curve that is used for fitting is limited to the
+            values greater than g2_lim_fit. If both tau_lims_fit and g1_lim_fit are provided, the fitting is done
             starting from tau_lims_fit[0] and up to the minimum of tau_lims_fit[1] and the first time delay where
-            g1_norm is greater than g1_lim_fit.
+            g2_norm is greater than g2_lim_fit.
         """
 
         # Check that the number of rows in g2_norm is the same as the length of tau
@@ -228,7 +232,7 @@ class FitHomogeneousSemiInf:
         self.lambda0 = lambda0
         self.msd_model = msd_model
         self.beta_calculator = beta_calculator
-        self.g1_lim_fit = g1_lim_fit
+        self.g2_lim_fit = g2_lim_fit
 
         # Initialize the beta and fitted_params attribute to None
         self.beta = None
@@ -242,7 +246,7 @@ class FitHomogeneousSemiInf:
 
     def fit(self):
         """
-        Fits the model to the data
+        Fits the model to the data and stores the fitted parameters in the fitted_params attribute.
         """
 
         if self.beta_calculator.mode in ["fixed", "raw"]:
@@ -258,12 +262,21 @@ class FitHomogeneousSemiInf:
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
         elif self.beta_calculator.mode == "fit":
-            pass
+            # Initialize arrays to store the fitted parameters values
+            self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
+            self.beta = np.full(len(self), np.nan)
+
+            for i in range(len(self)):
+                # Fit both the MSD params and beta and store the results in fitted_params and beta
+                curr_params, curr_beta = self._fit_beta_and_msd_params(i)
+                self.beta[i] = curr_beta
+                for param in curr_params:
+                    self.fitted_params[param][i] = curr_params[param]
 
     def _calc_beta(self):
         """
-        Calculates the beta parameter based on the beta_calculator attribute and stores it in the beta attribute.
-        Only called if beta_calculator.mode is "fixed" or "raw".
+        Calculates the beta parameter for all measurements based on the beta_calculator attribute and stores it in the
+        beta attribute. Only called if beta_calculator.mode is "fixed" or "raw".
 
         The beta attribute is a vector of the same length as the number of measurements, where each element is the beta
         parameter for the corresponding measurement.
@@ -295,8 +308,10 @@ class FitHomogeneousSemiInf:
         :param i: Index of the measurement to fit.
         :return: A Dict with the fitted parameters.
         """
-        # Crop the data based on tau_lims_fit and g1_lim_fit
-        tau_fit, g1_norm_fit = self._crop_to_fit_interval(i)
+        # Crop the data based on tau_lims_fit and g2_lim_fit
+        idx_first, idx_last = self._crop_to_fit_interval(i)
+        tau_fit = self.tau[idx_first:idx_last]
+        g1_norm_fit = self.g1_norm[idx_first:idx_last, i]
 
         # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
         # optimization algorithm.
@@ -336,33 +351,88 @@ class FitHomogeneousSemiInf:
 
     def _crop_to_fit_interval(self, i: int) -> tuple:
         """
-        Crops the data based on tau_lims_fit and g1_lim_fit.
+        Crops the data based on tau_lims_fit and g2_lim_fit.
         :param i: Index of the measurement to crop.
-        :return: The cropped tau and g1_norm.
+        :return: The indices of the first and last elements of the cropped data.
         """
-        if self.tau_lims_fit is not None and self.g1_lim_fit is not None:
+        if self.tau_lims_fit is not None and self.g2_lim_fit is not None:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
-            idx_last_g1 = np.argmax(self.g1_norm[:, i] < self.g1_lim_fit)  # First index after g1_lim_fit
-            idx_last = min(idx_last_tau, idx_last_g1)
+            idx_last_g2 = np.argmax(self.g2_norm[:, i] < self.g2_lim_fit)  # First index after g2_lim_fit
+            idx_last = min(idx_last_tau, idx_last_g2)
             if idx_first >= idx_last:
                 raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit or the first "
-                                 "g1_norm value greater than g1_lim_fit")
-            tau_fit = self.tau[idx_first:idx_last]
-            g1_norm_fit = self.g1_norm[idx_first:idx_last, i]
+                                 "g2_norm value greater than g2_lim_fit")
         elif self.tau_lims_fit is not None:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
             if idx_first >= idx_last:
                 raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit")
-            tau_fit = self.tau[idx_first:idx_last]
-            g1_norm_fit = self.g1_norm[idx_first:idx_last, i]
-        elif self.g1_lim_fit is not None:
-            idx_last = np.argmax(self.g1_norm[:, i] < self.g1_lim_fit)  # First index after g1_lim_fit
-            tau_fit = self.tau[:idx_last]
-            g1_norm_fit = self.g1_norm[:idx_last, i]
+        elif self.g2_lim_fit is not None:
+            idx_first = 0
+            idx_last = np.argmax(self.g2_norm[:, i] < self.g2_lim_fit)  # First index after g1_lim_fit
+            if idx_first >= idx_last:
+                raise ValueError("The first g2_norm value greater than g2_lim_fit should exist")
         else:
-            tau_fit = self.tau
-            g1_norm_fit = self.g1_norm[:, i]
+            idx_first = 0
+            idx_last = len(self.tau)
 
-        return tau_fit, g1_norm_fit
+        return idx_first, idx_last
+
+    def _fit_beta_and_msd_params(self, i: int) -> tuple:
+        """
+        Fits both the beta and MSD params of the model to a single measurement.
+
+        :param i: Index of the measurement to fit.
+        :return: A tuple with the fitted beta and the fitted parameters dictionary.
+        """
+        # Crop the data based on tau_lims_fit and g2_lim_fit
+        idx_first, idx_last = self._crop_to_fit_interval(i)
+        tau_fit = self.tau[idx_first:idx_last]
+        g2_norm_fit = self.g2_norm[idx_first:idx_last, i]
+
+        # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
+        # optimization algorithm.
+        scale_array = np.fromiter(self.msd_model.params_scale.values(), dtype=float)
+
+        # Define the objective function for the fit
+        def objective(params: np.ndarray) -> float:
+            """
+            Objective function for the fit.
+            :param params: A vector of the parameters of the model to fit. The order of the parameters should match
+                the order of the params attribute of the msd_model, followed by the beta parameter.
+            :return: The sum of the squared differences between the model and the data.
+            """
+            # Split the parameters into MSD params and beta
+            msd_params = params[:-1]
+            beta = params[-1]
+            msd_params *= scale_array
+            msd = self.msd_model.msd_fn(tau_fit, *msd_params)
+            g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
+            g2_norm = 1 + beta * g1_norm ** 2
+            return np.sum((g2_norm - g2_norm_fit) ** 2)
+
+        # Perform the fit
+        scaled_x0 = np.concatenate((np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array,
+                                    [self.beta_calculator.beta_init]))
+        bounds_msd = list(self.msd_model.param_bounds.values())
+        bounds_beta = self.beta_calculator.beta_bounds
+        # Scale the bounds, but set to None if the original bound is None
+        scaled_bounds_msd = [(None if bound[0] is None else bound[0] / scale_array[i],
+                              None if bound[1] is None else bound[1] / scale_array[i]) for i, bound in enumerate(bounds_msd)]
+        scaled_bounds_beta = bounds_beta
+        scaled_bounds = scaled_bounds_msd + [scaled_bounds_beta]
+        res = opt.minimize(
+            fun=objective,
+            x0=scaled_x0,
+            bounds=scaled_bounds
+        )
+
+        if not res.success:
+            fitted_params = dict(zip(self.msd_model.params, np.full(len(res.x) - 1, np.nan)))
+            fitted_beta = np.nan
+        else:
+            fitted_params = dict(zip(self.msd_model.params, res.x[:-1] * scale_array))
+            fitted_beta = res.x[-1]
+
+        return fitted_params, fitted_beta

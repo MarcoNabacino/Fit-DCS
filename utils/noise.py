@@ -10,6 +10,7 @@ def sigma_g2_norm(tau: np.ndarray, t_integration: float, countrate: float, beta:
 
     [1] Zhou, C. et al. (2006). "Diffuse optical correlation tomography of cerebral blood flow during cortical
     spreading depression in rat brain".
+
     [2] Sie, E. et al. (2020). "High-sensitivity multispeckle diffuse correlation spectroscopy".
 
     :param tau: Vector of time delays. [s]
@@ -47,13 +48,16 @@ class NoiseAdder:
 
     The noise model is based on [1], with the extension to the multispeckle case [2].
 
-    To get the correlation time tau_c, a fit of the g2 curve with a simple exponential model is performed. Following
-    and [2], the portion of the curve that is fitted is tau < mua / (10 * musp * k0**2 * Db), where k0 is the
+    To get the correlation time tau_c, a fit of the g2 curve with a simple exponential model
+    g2_simple_exp = 1 + beta * np.exp(-tau / tau_c) is performed. Note that this model is a good approximation for
+    Brownian motion, or hybrid motion with a dominant Brownian component, but not for ballistic motion.
+    Following [2], the portion of the curve that is fitted is tau < mua / (10 * musp * k0**2 * Db), where k0 is the
     wavenumber of the light in vacuum. For the default values (mua = 0.1 1/cm, musp = 10 1/cm, Db = 1e-8 cm^2/s,
     lambda0 = 785 nm), this results in tau < 1.56e-5 s.
 
     [1] Zhou, C. et al. (2006). "Diffuse optical correlation tomography of cerebral blood flow during cortical
     spreading depression in rat brain".
+
     [2] Sie, E. et al. (2020). "High-sensitivity multispeckle diffuse correlation spectroscopy".
     """
 
@@ -188,7 +192,8 @@ class NoiseAdder:
 
     def _fit_tau_c(self, i: int) -> float:
         """
-        Fits the g2 curve of iteration i to get the corresponding correlation time tau_c.
+        Fits the g2 curve of iteration i to get the corresponding correlation time tau_c, automatically selecting the
+        portion of the curve to fit based on the parameters of the medium.
         :param i: Index of the iteration.
         :return: The fitted correlation time tau_c [s].
         """
@@ -198,17 +203,31 @@ class NoiseAdder:
         tau_fit = self.tau[self.tau < tau_lim]
         g2_fit = self.g2_norm[self.tau < tau_lim, i]
 
-        # Define the model function for the fit
-        def simple_exp(beta, tau, tau_c):
-            return 1 + beta * np.exp(-tau / tau_c)
+        return fit_tau_c(self.beta, tau_fit, g2_fit)
 
-        # Define the cost function for the fit
-        def cost(tau_c):
-            # To help the optimizer, the input tau_c is in hundreds of microseconds. Convert it to seconds.
-            return np.sum((g2_fit - simple_exp(self.beta, tau_fit, tau_c * 1e-4)) ** 2)
 
-        # Perform the fit
-        res = opt.minimize(cost, np.array(2))
+def fit_tau_c(beta: float, tau_fit: np.ndarray, g2_fit: np.ndarray) -> float:
+    """
+    Fits the correlation time tau_c of a g2 curve to a simple exponential model g2(tau) = 1 + beta * exp(-tau/tau_c).
+    :param beta: Light coherence factor.
+    :param tau_fit: Vector of time delays for fitting. [s]
+    :param g2_fit: Vector of normalized second-order autocorrelation function values for fitting.
+    :return: The fitted correlation time tau_c [s].
+    """
+    # Define the model function for the fit
+    def simple_exp(beta, tau, tau_c):
+        return 1 + beta * np.exp(-tau / tau_c)
 
-        # Return the fitted tau_c
-        return res.x[0] * 1e-4
+    # Define the cost function for the fit
+    def cost(tau_c):
+        # To help the optimizer, the input tau_c is in hundreds of microseconds. Convert it to seconds.
+        g2_simple_exp = simple_exp(beta, tau_fit, tau_c * 1e-4)
+        return np.sum((g2_fit - g2_simple_exp) ** 2)
+
+    # Perform the fit
+    x0 = np.array(2) # Initial guess for tau_c in hundreds of microseconds
+    res = opt.minimize(cost, x0)
+
+    # Return the fitted tau_c
+    return res.x[0] * 1e-4 # Convert tau_c back to seconds
+

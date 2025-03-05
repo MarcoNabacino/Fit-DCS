@@ -5,6 +5,7 @@ import forward.homogeneous_semi_inf as hsi
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 import pandas as pd
+import utils.noise as noise
 
 
 class MSDModel:
@@ -162,6 +163,10 @@ class FitHomogeneousSemiInf:
             tau_lims_fit: tuple | None = None,
             g2_lim_fit: float | None = None,
             plot_interval: int | None = None,
+            nfr: bool = False,
+            time_integration: float | None = None,
+            countrate: float | np.ndarray | None = None,
+            n_speckle: int | None = None
     ):
         """
         Class constructor.
@@ -190,6 +195,17 @@ class FitHomogeneousSemiInf:
             g2_norm is greater than g2_lim_fit.
         :param plot_interval: If not None, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations.
+        :param nfr: If True, the noise model is used during fitting, by minimizing |(g2_norm - g2_norm_model) / sigma|^2
+            where sigma is the standard deviation of the noise. Default is False. If True, time_integration, countrate,
+            and n_speckle should be provided. Note that NFR fitting is not supported for ballistic MSD models, or when
+            beta_calculator.mode is "fit".
+        :param time_integration: Integration time of the measurement [s]. Only needed for NFR fitting, ignored
+            otherwise.
+        :param countrate: The count rate of the measurement [Hz]. If a float, the same value is used for all iterations.
+            If a vector, its length should be the same as the number of columns in g2_norm. Only needed for NFR fitting,
+            ignored otherwise.
+        :param n_speckle: Number of independent speckles that contribute to the measurement, that is, the number of
+            curves that were averaged to obtain g2_norm. Only needed for NFR fitting, ignored otherwise.
         """
 
         # Check that the number of rows in g2_norm is the same as the length of tau
@@ -230,6 +246,36 @@ class FitHomogeneousSemiInf:
                 raise ValueError("tau_lims_fit should be an ordered pair of floats")
         else:
             self.tau_lims_fit = None
+
+        self.nfr = nfr
+        # Check that, if nfr is True, then time_integration, countrate, and n_speckle are provided and valid.
+        # Additionally, warn the user if the msd model is ballistic and if the beta_calculator mode is
+        # "fit".
+        if nfr:
+            if time_integration is None:
+                raise ValueError("time_integration should be provided when nfr is True")
+            if countrate is None:
+                raise ValueError("countrate should be provided when nfr is True")
+            if n_speckle is None:
+                raise ValueError("n_speckle should be provided when nfr is True")
+            if isinstance(countrate, (float, int)):
+                self.countrate = np.full(len(self), countrate)
+            elif isinstance(countrate, np.ndarray):
+                if len(countrate) == len(self):
+                    self.countrate = countrate
+                else:
+                    raise ValueError("countrate should be a float or an array of the same length as the number of "
+                                     "columns in g2_norm")
+            else:
+                raise ValueError("countrate should be a float or an array")
+            self.n_speckle = n_speckle
+            self.time_integration = time_integration
+            if msd_model.model_name == "ballistic":
+                print("Warning: NFR fitting is not supported for ballistic MSD models. Classical fitting will be "
+                      "performed instead")
+            if beta_calculator.mode == "fit":
+                print("Warning: NFR fitting is not supported when beta_calculator.mode is 'fit'. Classical fitting "
+                      "will be performed instead")
 
         self.rho = rho
         self.n = n
@@ -337,17 +383,46 @@ class FitHomogeneousSemiInf:
         scale_array = np.fromiter(self.msd_model.params_scale.values(), dtype=float)
 
         # Define the objective function for the fit
-        def objective(params: np.ndarray) -> float:
-            """
-            Objective function for the fit.
-            :param params: A vector of the parameters of the model to fit. The order of the parameters should match
-                the order of the params attribute of the msd_model.
-            :return: The sum of the squared differences between the model and the data.
-            """
-            params *= scale_array  # Scale the parameters back to their original values
-            msd = self.msd_model.msd_fn(tau_fit, *params)
-            g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
-            return np.sum((g1_norm - g1_norm_fit) ** 2)
+        if not self.nfr or self.msd_model.model_name == "ballistic":
+            def objective(params: np.ndarray) -> float:
+                """
+                Objective function for the fit.
+                :param params: A vector of the parameters of the model to fit. The order of the parameters should match
+                    the order of the params attribute of the msd_model.
+                :return: The sum of the squared differences between the model and the data.
+                """
+                params *= scale_array  # Scale the parameters back to their original values
+                msd = self.msd_model.msd_fn(tau_fit, *params)
+                g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
+                return np.sum((g1_norm - g1_norm_fit) ** 2)
+        elif self.nfr and self.msd_model.model_name in ["brownian", "hybrid"]:
+            # Fit the curve using a simple exponential model to find tau_c
+            idx_last_simple_exp = np.argmax(self.tau > 1.56e-5)  # See documentation for utils.noise.NoiseAdder
+            tau_simple_exp = self.tau[idx_first:idx_last_simple_exp]
+            g2_simple_exp = self.g2_norm[idx_first:idx_last_simple_exp, i]
+            tau_c = noise.fit_tau_c(self.beta[i], tau_simple_exp, g2_simple_exp)
+
+            # Calculate the standard deviation of g2_norm based on the noise model
+            sigma = noise.sigma_g2_norm(
+                tau=tau_fit,
+                t_integration=self.time_integration,
+                countrate=self.countrate[i],
+                beta=self.beta[i],
+                tau_c=tau_c,
+                n_speckle=self.n_speckle
+            )
+
+            def objective(params: np.ndarray) -> float:
+                """
+                Objective function for the fit.
+                :param params: A vector of the parameters of the model to fit. The order of the parameters should match
+                    the order of the params attribute of the msd_model.
+                :return: The sum of the squared differences between the model and the data.
+                """
+                params *= scale_array  # Scale the parameters back to their original values
+                msd = self.msd_model.msd_fn(tau_fit, *params)
+                g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
+                return np.sum(((g1_norm - g1_norm_fit) / sigma) ** 2)
 
         # Perform the fit
         scaled_x0 = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
@@ -377,11 +452,12 @@ class FitHomogeneousSemiInf:
         if self.tau_lims_fit is not None and self.g2_lim_fit is not None:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
-            idx_last_g2 = np.argmax(self.g2_norm[:, i] < self.g2_lim_fit)  # First index after g2_lim_fit
+            indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
+            idx_last_g2 = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
             idx_last = min(idx_last_tau, idx_last_g2)
             if idx_first >= idx_last:
-                raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit or the first "
-                                 "g2_norm value greater than g2_lim_fit")
+                raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit or the last "
+                                 "g2_norm value smaller than g2_lim_fit")
         elif self.tau_lims_fit is not None:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
@@ -389,9 +465,10 @@ class FitHomogeneousSemiInf:
                 raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit")
         elif self.g2_lim_fit is not None:
             idx_first = 0
-            idx_last = np.argmax(self.g2_norm[:, i] < self.g2_lim_fit)  # First index after g1_lim_fit
+            indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
+            idx_last = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
             if idx_first >= idx_last:
-                raise ValueError("The first g2_norm value greater than g2_lim_fit should exist")
+                raise ValueError("The last g2_norm value smaller than g2_lim_fit should exist")
         else:
             idx_first = 0
             idx_last = len(self.tau)

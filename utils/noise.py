@@ -1,6 +1,41 @@
 import numpy as np
-from forward.common import sigma_g2_norm
 import scipy.optimize as opt
+
+
+def sigma_g2_norm(tau: np.ndarray, t_integration: float, countrate: float, beta: float, tau_c: float,
+                  n_speckle: int) -> np.ndarray:
+    """
+    Calculates the standard deviation of the normalized second-order autocorrelation function g2_norm using the DCS
+    noise model [1], with the extension to the multispeckle case [2]. Notation follows [2], in particular Eq. (5).
+
+    [1] Zhou, C. et al. (2006). "Diffuse optical correlation tomography of cerebral blood flow during cortical
+    spreading depression in rat brain".
+    [2] Sie, E. et al. (2020). "High-sensitivity multispeckle diffuse correlation spectroscopy".
+
+    :param tau: Vector of time delays. [s]
+    :param t_integration: Integration time of the measurement. [s]
+    :param countrate: Detected count rate of the measurement. [Hz]
+    :param beta: Light coherence factor.
+    :param tau_c: The correlation time for a simple exponential decay, i.e.,
+        g2(tau) = 1 + beta * exp(-tau/t_correlation).
+    :param n_speckle: The number of independent speckles contributing to the measurement.
+    :return: The standard deviation of the normalized second-order autocorrelation function g2_norm. A vector the same
+        length as tau.
+    """
+    t_bin = np.diff(tau, prepend=0)  # Time bin width
+    n = countrate * t_bin  # Number of detected photons in each bin
+    m = tau / t_bin  # Delay time bin index
+
+
+    prefactor = t_bin / (t_integration * n_speckle)
+    a = 1 + beta * np.exp(-tau / (2 * tau_c))
+    b = 2 * beta * (1 + np.exp(-tau / tau_c))
+    num_c_1 = (1 + np.exp(-t_bin / tau_c)) * (1 + np.exp(-tau / tau_c))
+    num_c_2 = 2 * m * (1 - np.exp(-t_bin / tau_c)) * np.exp(-tau / tau_c)
+    den_c = 1 - np.exp(-t_bin / tau_c)
+    c = beta ** 2 * (num_c_1 + num_c_2) / den_c
+
+    return 1 / n * np.sqrt(prefactor * (a + b * n + c * n ** 2))
 
 
 class NoiseAdder:
@@ -73,8 +108,9 @@ class NoiseAdder:
             if len(countrate) == len(self):
                 self.countrate = countrate
             else:
-                raise ValueError("countrate should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
+                raise ValueError(
+                    "countrate should be a float or an array of the same length as the number of columns in "
+                    "g2_norm")
         else:
             raise ValueError("countrate should be a float or an array")
 
@@ -150,7 +186,6 @@ class NoiseAdder:
 
         return g2_norm_noisy
 
-
     def _fit_tau_c(self, i: int) -> float:
         """
         Fits the g2 curve of iteration i to get the corresponding correlation time tau_c.
@@ -159,17 +194,18 @@ class NoiseAdder:
         """
         # Calculate the limit of tau for fitting.
         k0 = 2 * np.pi / (self.lambda0 * 1e-7)  # Convert lambda0 to cm
-        tau_lim = self.mua[i] / (10 * self.musp[i] * k0**2 * self.db[i])
+        tau_lim = self.mua[i] / (10 * self.musp[i] * k0 ** 2 * self.db[i])
         tau_fit = self.tau[self.tau < tau_lim]
         g2_fit = self.g2_norm[self.tau < tau_lim, i]
 
         # Define the model function for the fit
         def simple_exp(beta, tau, tau_c):
             return 1 + beta * np.exp(-tau / tau_c)
+
         # Define the cost function for the fit
         def cost(tau_c):
             # To help the optimizer, the input tau_c is in hundreds of microseconds. Convert it to seconds.
-            return np.sum((g2_fit - simple_exp(self.beta, tau_fit, tau_c * 1e-4))**2)
+            return np.sum((g2_fit - simple_exp(self.beta, tau_fit, tau_c * 1e-4)) ** 2)
 
         # Perform the fit
         res = opt.minimize(cost, np.array(2))

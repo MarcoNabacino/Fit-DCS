@@ -48,38 +48,3 @@ def effective_reflectance(n: float) -> float:
     :return: The effective reflectance of the medium.
     """
     return - 1.440 / n**2 + 0.710 / n + 0.668 + 0.0636 * n
-
-
-def sigma_g2_norm(tau: np.ndarray, t_integration: float, countrate: float, beta: float, tau_c: float,
-                  n_speckle: int) -> np.ndarray:
-    """
-    Calculates the standard deviation of the normalized second-order autocorrelation function g2_norm using the DCS
-    noise model [1], with the extension to the multispeckle case [2]. Notation follows [2], in particular Eq. (5).
-
-    [1] Zhou, C. et al. (2006). "Diffuse optical correlation tomography of cerebral blood flow during cortical
-    spreading depression in rat brain".
-    [2] Sie, E. et al. (2020). "High-sensitivity multispeckle diffuse correlation spectroscopy".
-
-    :param tau: Vector of time delays. [s]
-    :param t_integration: Integration time of the measurement. [s]
-    :param countrate: Detected count rate of the measurement. [Hz]
-    :param beta: Light coherence factor.
-    :param tau_c: The correlation time for a simple exponential decay, i.e.,
-        g2(tau) = 1 + beta * exp(-tau/t_correlation).
-    :param n_speckle: The number of independent speckles contributing to the measurement.
-    :return: The standard deviation of the normalized second-order autocorrelation function g2_norm. A vector the same
-        length as tau.
-    """
-    t_bin = np.diff(tau, prepend=0) # Time bin width
-    n = countrate * t_bin # Number of detected photons in each bin
-    m = np.arange(1, len(tau) + 1) # Bin index
-
-    prefactor = t_bin / (t_integration * n_speckle)
-    a = 1 + beta * np.exp(-tau / (2 * tau_c))
-    b = 2 * beta * (1 + np.exp(-tau / tau_c))
-    num_c_1 = (1 + np.exp(-t_bin / tau_c)) * (1 + np.exp(-tau / tau_c))
-    num_c_2 = 2 * m * (1 - np.exp(-t_bin / tau_c)) * np.exp(-tau / tau_c)
-    den_c = 1 - np.exp(-t_bin / tau_c)
-    c = beta**2 * (num_c_1 + num_c_2) / den_c
-
-    return 1 / n * np.sqrt(prefactor * (a + b * n + c * n**2))

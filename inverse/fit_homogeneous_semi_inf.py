@@ -168,13 +168,13 @@ class FitHomogeneousSemiInf:
 
         :param tau: Vector of time delays [s].
         :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each column corresponds to a
-            different measurement, and each row corresponds to a different time delay. The number of rows should be the
+            different iteration, and each row corresponds to a different time delay. The number of rows should be the
             same as the length of tau.
         :param mua: Absorption coefficient of the medium [1/cm]. If a float, the same value is used for all
-            measurements. If an array, a different value is used for each measurement, and the length of the array
+            iterations. If an array, a different value is used for each iteration, and the length of the array
             should be the same as the number of columns in g2_norm.
         :param musp: Reduced scattering coefficient of the medium [1/cm]. If a float, the same value is used for all
-            measurements. If an array, a different value is used for each measurement, and the length of the array
+            iterations. If an array, a different value is used for each iteration, and the length of the array
             should be the same as the number of columns in g2_norm.
         :param rho: Source-detector separation [cm].
         :param n: Ratio of the refractive index of the medium to the refractive index of the surrounding medium
@@ -189,7 +189,7 @@ class FitHomogeneousSemiInf:
             starting from tau_lims_fit[0] and up to the minimum of tau_lims_fit[1] and the first time delay where
             g2_norm is greater than g2_lim_fit.
         :param plot_interval: If not None, a plot showing the g2_norm curves and the fitted curves is displayed every
-            plot_interval measurements.
+            plot_interval iterations.
         """
 
         # Check that the number of rows in g2_norm is the same as the length of tau
@@ -245,14 +245,14 @@ class FitHomogeneousSemiInf:
 
     def __len__(self):
         """
-        Returns the number of measurements.
+        Returns the number of iterations.
         """
         return self.g2_norm.shape[1]
 
     def fit(self) -> pd.DataFrame:
         """
         Fits the model to the data and stores the beta and fitted parameters in the beta and fitted_params attribute.
-        :return: A DataFrame with beta and the fitted parameters for each measurement.
+        :return: A DataFrame with beta and the fitted parameters for each iteration.
         """
 
         if self.beta_calculator.mode in ["fixed", "raw"]:
@@ -294,11 +294,11 @@ class FitHomogeneousSemiInf:
 
     def _calc_beta(self):
         """
-        Calculates the beta parameter for all measurements based on the beta_calculator attribute and stores it in the
+        Calculates the beta parameter for all iterations based on the beta_calculator attribute and stores it in the
         beta attribute. Only called if beta_calculator.mode is "fixed" or "raw".
 
-        The beta attribute is a vector of the same length as the number of measurements, where each element is the beta
-        parameter for the corresponding measurement.
+        The beta attribute is a vector of the same length as the number of iterations, where each element is the beta
+        parameter for the corresponding iteration.
 
         :return: None
         """
@@ -313,7 +313,7 @@ class FitHomogeneousSemiInf:
 
     def _calc_g1_norm(self):
         """
-        Calculates the normalized first-order autocorrelation function g1_norm for all measurements using the
+        Calculates the normalized first-order autocorrelation function g1_norm for all iterations using the
         previously calculated beta values and stores it in the g1_norm attribute.
 
         :return: None
@@ -322,9 +322,9 @@ class FitHomogeneousSemiInf:
 
     def _fit_msd_params(self, i: int) -> Dict:
         """
-        Fits only the MSD params of the model (i.e., no beta) to a single measurement.
+        Fits only the MSD params of the model (i.e., no beta) to a single iteration.
 
-        :param i: Index of the measurement to fit.
+        :param i: Index of the iteration to fit.
         :return: A Dict with the fitted parameters.
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
@@ -371,7 +371,7 @@ class FitHomogeneousSemiInf:
     def _crop_to_fit_interval(self, i: int) -> tuple:
         """
         Crops the data based on tau_lims_fit and g2_lim_fit.
-        :param i: Index of the measurement to crop.
+        :param i: Index of the iteration to crop.
         :return: The indices of the first and last elements of the cropped data.
         """
         if self.tau_lims_fit is not None and self.g2_lim_fit is not None:
@@ -400,9 +400,9 @@ class FitHomogeneousSemiInf:
 
     def _fit_beta_and_msd_params(self, i: int) -> tuple:
         """
-        Fits both the beta and MSD params of the model to a single measurement.
+        Fits both the beta and MSD params of the model to a single iteration.
 
-        :param i: Index of the measurement to fit.
+        :param i: Index of the iteration to fit.
         :return: A tuple with the fitted beta and the fitted parameters dictionary.
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
@@ -458,13 +458,13 @@ class FitHomogeneousSemiInf:
 
     def _plot_fit(self, i: int) -> plt.figure:
         """
-        Plots the g2_norm curve and the fitted curve for a single measurement, also displaying the fitting interval
-        :param i: The index of the measurement to plot
+        Plots the g2_norm curve and the fitted curve for a single iteration, also displaying the fitting interval
+        :param i: The index of the iteration to plot
         :return: The figure object
         """
         idx_first, idx_last = self._crop_to_fit_interval(i)
         tau_fit = self.tau[idx_first:idx_last]
-        # Get the fitted params for measurement i
+        # Get the fitted params for iteration i
         fitted_params = {param: self.fitted_params[param][i] for param in self.msd_model.params}
         msd = self.msd_model.msd_fn(tau_fit, *fitted_params.values())
         g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
@@ -477,7 +477,7 @@ class FitHomogeneousSemiInf:
         plt.annotate(text, xy=(0.05, 0.20), xycoords="axes fraction", fontsize=10,
                      verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
 
-        plt.title(f"Measurement {i}")
+        plt.title(f"Iteration {i}")
         plt.xlabel(r"$\tau$ [s]")
         plt.ylabel(r"$g^{(2)}(\tau)$")
         plt.legend()

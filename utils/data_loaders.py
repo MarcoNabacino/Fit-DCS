@@ -1,25 +1,32 @@
 import numpy as np
 from typing import Dict
 
+
 class DataLoaderALV:
     """
     Data loader for .asc files created by the ALV7004/USB-FAST correlator.
 
-    Reads the data from the files that make up a single measurement and stores it in the class attributes.
+    Reads the data from the files that make up a single measurement and stores it in the class attributes:
+    - countrate: Array of shape (n_channels, n_files) containing the countrate for each channel in each file.
+    - tau: Array of shape (n_bins,) containing the time delays.
+    - g2_norm: Array of shape (n_bins, n_files, n_channels) containing the normalized g2 data.
+    - integration_time: Integration time [s].
     """
-    def __init__(self, data_file_paths: list[str]):
+    N_BINS = 199 # ALV correlator has 199 time bins
+
+    def __init__(self, data_file_paths: list[str], n_channels: int = 4):
         """
         Class constructor.
         :param data_file_paths: List of paths to the data files.
+        :param n_channels: Number of channels used in the measurement. Default is 4.
         """
         self.data_file_paths = data_file_paths
+        self.n_channels = n_channels
 
         # Initialize the data arrays
-        self.n_bins = 199 # ALV correlator has 199 time bins
-        self.n_ch = 4 # Assume that all 4 channels were used
-        self.countrate = np.empty((self.n_ch, len(self)))
-        self.tau = np.empty(self.n_bins)
-        self.g2_norm = np.empty((self.n_bins, len(self), self.n_ch))
+        self.countrate = np.empty((self.n_channels, len(self)))
+        self.tau = np.empty(self.N_BINS)
+        self.g2_norm = np.empty((self.N_BINS, len(self), self.n_channels))
         self.integration_time = np.nan # Integration time [s]
 
     def __len__(self):
@@ -31,11 +38,10 @@ class DataLoaderALV:
     def load_data(self):
         """
         Load the data from the .asc files and store it in the class attributes.
-        Assume that all 4 channels were used.
         """
         for iteration in range(len(self)):
             filename = self.data_file_paths[iteration]
-            data = read_asc(filename)
+            data = read_asc(filename, n_ch=self.n_channels, n_bins=self.N_BINS)
             self.countrate[:, iteration] = data["countrate"]
             if iteration == 0:
                 self.tau = data["tau"]
@@ -92,10 +98,10 @@ def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
             for ch in range(n_ch):
                 g2_norm[i_bin, ch] = float(values[ch + 1])
 
-        # The correlator saves g2 - 1, so we need to add 1 to get the normalized g2
-        g2_norm += 1
-        # Tau is stored in ms, so we need to convert it to s
-        tau *= 1e-3
+    # The correlator saves g2 - 1, so we need to add 1 to get the normalized g2
+    g2_norm += 1
+    # Tau is stored in ms, so we need to convert it to s
+    tau *= 1e-3
 
     return dict(
         date=date,

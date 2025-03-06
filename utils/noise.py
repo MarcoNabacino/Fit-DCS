@@ -24,9 +24,9 @@ def sigma_g2_norm(tau: np.ndarray, t_integration: float, countrate: float, beta:
         length as tau.
     """
     t_bin = np.diff(tau, prepend=0)  # Time bin width
+    t_bin[0] = t_bin[1]  # First bin width is the same as the second bin width
     n = countrate * t_bin  # Number of detected photons in each bin
     m = tau / t_bin  # Delay time bin index
-
 
     prefactor = t_bin / (t_integration * n_speckle)
     a = 1 + beta * np.exp(-tau / (2 * tau_c))

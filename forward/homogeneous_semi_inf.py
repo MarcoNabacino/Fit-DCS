@@ -2,7 +2,7 @@ import numpy as np
 import forward.common as common
 
 
-def g1(msd: np.ndarray | float, mua: float, musp: float, rho: float, n: float, lambda0: float) -> np.ndarray:
+def g1(msd: np.ndarray, mua: float, musp: float, rho: float, n: float, lambda0: float) -> np.ndarray:
     """
     Calculates the unnormalized first-order autocorrelation function g1 for a homogeneous semi-infinite medium.
 
@@ -46,6 +46,7 @@ def g1_norm(msd: np.ndarray | float, mua: float, musp: float, rho: float, n: flo
     :return: The normalized first-order autocorrelation function g1. A vector the same length as tau.
     """
     return g1(msd, mua, musp, rho, n, lambda0) / g1(0, mua, musp, rho, n, lambda0)
+
 
 def d_factors(db: float, tau: np.ndarray, mua: float, musp: float, rho: float, n: float, lambda0: float) -> tuple:
     """

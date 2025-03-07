@@ -1,11 +1,9 @@
-from typing import Dict
+from typing import Dict, Callable
 import numpy as np
 import forward.common as common
-import forward.homogeneous_semi_inf as hsi
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 import pandas as pd
-import utils.noise as noise
 
 
 class MSDModel:
@@ -190,30 +188,24 @@ class BetaCalculator:
         self.mode = mode
 
 
-class FitHomogeneousSemiInf:
+class FitHomogeneous:
     """
-    A class for fitting the normalized second-order autocorrelation functions g2_norm using the homogeneous
-    semi-infinite model.
+    A class for fitting the normalized second-order autocorrelation functions g2_norm using a homogeneous model for an
+    arbitrary geometry (e.g., semi-infinite, laterally infinite slab, etc.) and a mean-square displacement (MSD) model
+    (e.g., Brownian, ballistic, hybrid).
     """
 
     def __init__(
             self,
             tau: np.ndarray,
             g2_norm: np.ndarray,
-            mua: np.ndarray | float,
-            musp: np.ndarray | float,
-            rho: float,
-            n: float,
-            lambda0: float,
+            g1_norm_fn: Callable,
             msd_model: MSDModel,
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple | None = None,
             g2_lim_fit: float | None = None,
             plot_interval: int | None = None,
-            nfr: bool = False,
-            time_integration: float | None = None,
-            countrate: float | np.ndarray | None = None,
-            n_speckle: int | None = None
+            **kwargs
     ):
         """
         Class constructor.
@@ -222,16 +214,10 @@ class FitHomogeneousSemiInf:
         :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each column corresponds to a
             different iteration, and each row corresponds to a different time delay. The number of rows should be the
             same as the length of tau.
-        :param mua: Absorption coefficient of the medium [1/cm]. If a float, the same value is used for all
-            iterations. If an array, a different value is used for each iteration, and the length of the array
-            should be the same as the number of columns in g2_norm.
-        :param musp: Reduced scattering coefficient of the medium [1/cm]. If a float, the same value is used for all
-            iterations. If an array, a different value is used for each iteration, and the length of the array
-            should be the same as the number of columns in g2_norm.
-        :param rho: Source-detector separation [cm].
-        :param n: Ratio of the refractive index of the medium to the refractive index of the surrounding medium
-            (typically air).
-        :param lambda0: Wavelength of the light source [nm].
+        :param g1_norm_fn: A function that calculates the normalized first-order autocorrelation function g1_norm
+            based on the MSD model. This should be one of the functions defined in the forward module. The function
+            has the signature g1_norm_model(msd, **kwargs), where msd is the mean-square displacement of the
+            scatterers, and **kwargs are the additional arguments needed for the function.
         :param msd_model: An instance of the MSDModel class.
         :param beta_calculator: An instance of the BetaCalculator class.
         :param tau_lims_fit: Ordered pair of floats defining the lower and upper limits of the time delays used for
@@ -242,17 +228,11 @@ class FitHomogeneousSemiInf:
             g2_norm is greater than g2_lim_fit.
         :param plot_interval: If not None, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations.
-        :param nfr: If True, the noise model is used during fitting, by minimizing |(g2_norm - g2_norm_model) / sigma|^2
-            where sigma is the standard deviation of the noise. Default is False. If True, time_integration, countrate,
-            and n_speckle should be provided. Note that NFR fitting is not supported for ballistic MSD models, or when
-            beta_calculator.mode is "fit".
-        :param time_integration: Integration time of the measurement [s]. Only needed for NFR fitting, ignored
-            otherwise.
-        :param countrate: The count rate of the measurement [Hz]. If a float, the same value is used for all iterations.
-            If a vector, its length should be the same as the number of columns in g2_norm. Only needed for NFR fitting,
-            ignored otherwise.
-        :param n_speckle: Number of independent speckles that contribute to the measurement, that is, the number of
-            curves that were averaged to obtain g2_norm. Only needed for NFR fitting, ignored otherwise.
+        :param kwargs: Additional arguments needed for the g1_norm_model function (e.g., mua, musp, rho, etc.). Each
+            keyword argument can either be a float or a vector of floats. If it is a vector, then the length of the
+            vector should be the same as the number of iterations in g2_norm. If it is a float, then the same value is
+            used for all iterations.
+            The keyword arguments should be named the same as the arguments of the g1_norm_model function.
         """
 
         # Check that the number of rows in g2_norm is the same as the length of tau
@@ -261,26 +241,6 @@ class FitHomogeneousSemiInf:
             self.g2_norm = g2_norm
         else:
             raise ValueError("The number of rows in g2_norm should be the same as the length of tau")
-
-        # Check that mua and musp are either floats or arrays of the same length as the number of columns in g2_norm
-        if isinstance(mua, (float, int)):
-            self.mua = np.full(len(self), mua)
-        elif isinstance(mua, np.ndarray):
-            if len(mua) == len(self):
-                self.mua = mua
-            else:
-                raise ValueError("mua should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
-        else:
-            raise ValueError("mua should be a float or an array")
-        if isinstance(musp, (float, int)):
-            self.musp = np.full(len(self), musp)
-        elif isinstance(musp, np.ndarray):
-            if len(musp) == len(self):
-                self.musp = musp
-            else:
-                raise ValueError("musp should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
 
         # Check that tau_lims_fit is an ordered pair of floats
         if tau_lims_fit is not None:
@@ -294,39 +254,8 @@ class FitHomogeneousSemiInf:
         else:
             self.tau_lims_fit = None
 
-        self.nfr = nfr
-        # Check that, if nfr is True, then time_integration, countrate, and n_speckle are provided and valid.
-        # Additionally, warn the user if the msd model is ballistic and if the beta_calculator mode is
-        # "fit".
-        if nfr:
-            if time_integration is None:
-                raise ValueError("time_integration should be provided when nfr is True")
-            if countrate is None:
-                raise ValueError("countrate should be provided when nfr is True")
-            if n_speckle is None:
-                raise ValueError("n_speckle should be provided when nfr is True")
-            if isinstance(countrate, (float, int)):
-                self.countrate = np.full(len(self), countrate)
-            elif isinstance(countrate, np.ndarray):
-                if len(countrate) == len(self):
-                    self.countrate = countrate
-                else:
-                    raise ValueError("countrate should be a float or an array of the same length as the number of "
-                                     "columns in g2_norm")
-            else:
-                raise ValueError("countrate should be a float or an array")
-            self.n_speckle = n_speckle
-            self.time_integration = time_integration
-            if msd_model.model_name == "ballistic":
-                print("Warning: NFR fitting is not supported for ballistic MSD models. Classical fitting will be "
-                      "performed instead")
-            if beta_calculator.mode == "fit":
-                print("Warning: NFR fitting is not supported when beta_calculator.mode is 'fit'. Classical fitting "
-                      "will be performed instead")
-
-        self.rho = rho
-        self.n = n
-        self.lambda0 = lambda0
+        self.g1_norm_fn = g1_norm_fn
+        self.g1_args = kwargs
         self.msd_model = msd_model
         self.beta_calculator = beta_calculator
         self.g2_lim_fit = g2_lim_fit
@@ -348,12 +277,11 @@ class FitHomogeneousSemiInf:
         :return: A DataFrame with beta and the fitted parameters for each iteration.
         """
 
-        if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
-            # Initialize arrays to store the fitted parameters values
-            self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
+        # Initialize arrays to store the fitted parameters values
+        self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
 
+        if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             self._calc_beta()
-            self._calc_g1_norm()
 
             for i in range(len(self)):
                 # Fit the MSD params and store the results in fitted_params
@@ -365,8 +293,6 @@ class FitHomogeneousSemiInf:
                     fig = self._plot_fit(i)
                     plt.show(fig)
         elif self.beta_calculator.mode == "fit":
-            # Initialize arrays to store the fitted parameters values
-            self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
             self.beta = np.full(len(self), np.nan)
 
             for i in range(len(self)):
@@ -388,7 +314,7 @@ class FitHomogeneousSemiInf:
     def _calc_beta(self):
         """
         Calculates the beta parameter for all iterations based on the beta_calculator attribute and stores it in the
-        beta attribute. Only called if beta_calculator.mode is "fixed" or "raw", or "raw_weighted".
+        beta attribute. Only called if beta_calculator.mode is "fixed", "raw", or "raw_weighted".
 
         The beta attribute is a vector of the same length as the number of iterations, where each element is the beta
         parameter for the corresponding iteration.
@@ -424,15 +350,6 @@ class FitHomogeneousSemiInf:
             tau_crop = np.broadcast_to(tau_crop, g2_norm_crop.shape)
             self.beta = np.mean((self.g2_norm[idx_first:idx_last, :] - 1) * (1 + tau_crop / tau_c), axis=0)
 
-    def _calc_g1_norm(self):
-        """
-        Calculates the normalized first-order autocorrelation function g1_norm for all iterations using the
-        previously calculated beta values and stores it in the g1_norm attribute.
-
-        :return: None
-        """
-        self.g1_norm = np.sqrt(np.abs((self.g2_norm - 1) / self.beta))
-
     def _fit_msd_params(self, i: int) -> Dict:
         """
         Fits only the MSD params of the model (i.e., no beta) to a single iteration.
@@ -443,53 +360,28 @@ class FitHomogeneousSemiInf:
         # Crop the data based on tau_lims_fit and g2_lim_fit
         idx_first, idx_last = self._crop_to_fit_interval(i)
         tau_fit = self.tau[idx_first:idx_last]
-        g1_norm_fit = self.g1_norm[idx_first:idx_last, i]
+        g2_norm_fit = self.g2_norm[idx_first:idx_last, i]
 
         # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
         # optimization algorithm.
         scale_array = np.fromiter(self.msd_model.params_scale.values(), dtype=float)
 
         # Define the objective function for the fit
-        if not self.nfr or self.msd_model.model_name == "ballistic":
-            def objective(params: np.ndarray) -> float:
-                """
-                Objective function for the fit.
-                :param params: A vector of the parameters of the model to fit. The order of the parameters should match
-                    the order of the params attribute of the msd_model.
-                :return: The sum of the squared differences between the model and the data.
-                """
-                params *= scale_array  # Scale the parameters back to their original values
-                msd = self.msd_model.msd_fn(tau_fit, *params)
-                g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
-                return np.sum((g1_norm - g1_norm_fit) ** 2)
-        elif self.nfr and self.msd_model.model_name in ["brownian", "hybrid"]:
-            # Fit the curve using a simple exponential model to find tau_c
-            idx_last_simple_exp = np.argmax(self.tau > 1.56e-5)  # See documentation for utils.noise.NoiseAdder
-            tau_simple_exp = self.tau[idx_first:idx_last_simple_exp]
-            g2_simple_exp = self.g2_norm[idx_first:idx_last_simple_exp, i]
-            tau_c = noise.fit_tau_c(self.beta[i], tau_simple_exp, g2_simple_exp)
-
-            # Calculate the standard deviation of g2_norm based on the noise model
-            sigma = noise.sigma_g2_norm(
-                tau=tau_fit,
-                t_integration=self.time_integration,
-                countrate=self.countrate[i],
-                beta=self.beta[i],
-                tau_c=tau_c,
-                n_speckle=self.n_speckle
-            )
-
-            def objective(params: np.ndarray) -> float:
-                """
-                Objective function for the fit.
-                :param params: A vector of the parameters of the model to fit. The order of the parameters should match
-                    the order of the params attribute of the msd_model.
-                :return: The sum of the squared differences between the model and the data.
-                """
-                params *= scale_array  # Scale the parameters back to their original values
-                msd = self.msd_model.msd_fn(tau_fit, *params)
-                g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
-                return np.sum(((g1_norm - g1_norm_fit) / sigma) ** 2)
+        def objective(params: np.ndarray) -> float:
+            """
+            Objective function for the fit.
+            :param params: A vector of the parameters of the model to fit. The order of the parameters should match
+                the order of the params attribute of the msd_model.
+            :return: The sum of the squared differences between the model and the data.
+            """
+            params *= scale_array  # Scale the parameters back to their original values
+            msd = self.msd_model.msd_fn(tau_fit, *params)
+            # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
+            # We need to select the i-th element of each argument vector for the current iteration.
+            g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
+            g1_norm = self.g1_norm_fn(msd, **g1_args)
+            g2_norm = 1 + self.beta[i] * g1_norm ** 2
+            return np.sum((g2_norm - g2_norm_fit) ** 2)
 
         # Perform the fit
         scaled_x0 = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
@@ -520,7 +412,7 @@ class FitHomogeneousSemiInf:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
             indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
-            idx_last_g2 = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
+            idx_last_g2 = indices[-1] # Last index where g2_norm > g2_lim_fit
             idx_last = min(idx_last_tau, idx_last_g2)
             if idx_first >= idx_last:
                 raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit or the last "
@@ -571,7 +463,10 @@ class FitHomogeneousSemiInf:
             beta = params[-1]
             msd_params *= scale_array
             msd = self.msd_model.msd_fn(tau_fit, *msd_params)
-            g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
+            # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
+            # We need to select the i-th element of each argument vector for the current iteration.
+            g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
+            g1_norm = self.g1_norm_fn(msd, **g1_args)
             g2_norm = 1 + beta * g1_norm ** 2
             return np.sum((g2_norm - g2_norm_fit) ** 2)
 
@@ -611,7 +506,10 @@ class FitHomogeneousSemiInf:
         # Get the fitted params for iteration i
         fitted_params = {param: self.fitted_params[param][i] for param in self.msd_model.params}
         msd = self.msd_model.msd_fn(tau_fit, *fitted_params.values())
-        g1_norm = hsi.g1_norm(msd, self.mua[i], self.musp[i], self.rho, self.n, self.lambda0)
+        # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
+        # We need to select the i-th element of each argument vector for the current iteration.
+        g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
+        g1_norm = self.g1_norm_fn(msd, **g1_args)
         g2_norm = 1 + self.beta[i] * g1_norm ** 2
 
         f = plt.figure()

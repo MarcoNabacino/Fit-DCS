@@ -71,7 +71,20 @@ class MSDModel:
 
 class BetaCalculator:
     """
-    Class defining how to calculate the beta parameter.
+    Class defining how to calculate the beta parameter. The possible modes are:
+
+    - "fixed": The beta parameter is fixed to a specific user-defined value (beta_fixed).
+
+    - "raw": The beta parameter is calculated from the raw data as the mean of g2_norm - 1 over a specific time
+        interval (defined by tau_lims).
+
+    - "raw_weighted": beta is calculated from the raw data as the mean of (g2_norm - 1) * (1 + tau / tau_c) over a
+        specific time interval (defined by tau_lims), where tau_c is estimated from the raw data using a simple
+        exponential model. Specifically, alpha * tau_c is the time delay where g2_norm is equal to
+        1 + beta0 * exp(-alpha).
+
+    - "fit": The beta parameter is fitted along with the MSD parameters using the same time interval as the MSD
+        parameters. The initial value of beta is defined by beta_init, and the bounds are defined by beta_bounds.
     """
 
     def __init__(self, mode: str, **kwargs):
@@ -82,6 +95,8 @@ class BetaCalculator:
         :param kwargs: Additional arguments depending on the mode. Specific arguments are:
             - If mode is "fixed", then beta_fixed should be a float.
             - If mode is "raw", then tau_lims should be an ordered pair of floats.
+            - If mode is "raw_weighted", then tau_lims should be an ordered pair of floats, beta0 should be a float,
+                and alpha (optional, default 0.5) should be a float in the range [0, 1].
             - If mode is "fit", then beta_init should be a float and beta_bounds (optional) should be a 2-tuple
                 specifying the lower and upper bounds of the beta parameter. Use None rather than inf for no bound.
                 If beta_bounds is not provided, the default bounds are (None, None).
@@ -113,6 +128,38 @@ class BetaCalculator:
                     raise ValueError("tau_lims should be an ordered pair of floats")
             else:
                 raise ValueError("tau_lims should be provided for the 'raw' mode")
+        elif mode == "raw_weighted":
+            if "tau_lims" in kwargs:
+                # Check that tau_lims is an ordered pair of floats
+                if isinstance(kwargs["tau_lims"], tuple) and len(kwargs["tau_lims"]) == 2:
+                    if (all(isinstance(x, (float, int)) for x in kwargs["tau_lims"])) and kwargs["tau_lims"][0] < \
+                            kwargs["tau_lims"][1]:
+                        self.tau_lims = kwargs["tau_lims"]
+                    else:
+                        raise ValueError("tau_lims should be an ordered pair of floats")
+                else:
+                    raise ValueError("tau_lims should be an ordered pair of floats")
+            else:
+                raise ValueError("tau_lims should be provided for the 'raw_weighted' mode")
+            if "beta0" in kwargs:
+                # Check that beta0 is a float
+                if isinstance(kwargs["beta0"], (float, int)):
+                    self.beta0 = kwargs["beta0"]
+                    # Warn the user if beta0 is outside the range [0, 0.5]
+                    if self.beta0 < 0 or self.beta0 > 0.5:
+                        print("Warning: beta0 should be in the range [0, 0.5]")
+                else:
+                    raise ValueError("beta0 should be a float")
+            else:
+                raise ValueError("beta0 should be provided for the 'raw_weighted' mode")
+            if "alpha" in kwargs:
+                # Check that alpha is a float in the range [0, 1]
+                if isinstance(kwargs["alpha"], (float, int)) and 0 <= kwargs["alpha"] <= 1:
+                    self.alpha = kwargs["alpha"]
+                else:
+                    raise ValueError("alpha should be a float in the range [0, 1]")
+            else:
+                self.alpha = 0.5
         elif mode == "fit":
             if "beta_init" in kwargs:
                 # Check that beta_init is a float
@@ -138,7 +185,7 @@ class BetaCalculator:
             else:
                 self.beta_bounds = (None, None)
         else:
-            raise ValueError(f"Unknown mode: {mode}. Choose from 'fixed', 'raw', or 'fit'")
+            raise ValueError(f"Unknown mode: {mode}. Choose from 'fixed', 'raw', 'raw_weighted', or 'fit'")
 
         self.mode = mode
 
@@ -301,7 +348,7 @@ class FitHomogeneousSemiInf:
         :return: A DataFrame with beta and the fitted parameters for each iteration.
         """
 
-        if self.beta_calculator.mode in ["fixed", "raw"]:
+        if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             # Initialize arrays to store the fitted parameters values
             self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
 
@@ -341,7 +388,7 @@ class FitHomogeneousSemiInf:
     def _calc_beta(self):
         """
         Calculates the beta parameter for all iterations based on the beta_calculator attribute and stores it in the
-        beta attribute. Only called if beta_calculator.mode is "fixed" or "raw".
+        beta attribute. Only called if beta_calculator.mode is "fixed" or "raw", or "raw_weighted".
 
         The beta attribute is a vector of the same length as the number of iterations, where each element is the beta
         parameter for the corresponding iteration.
@@ -356,6 +403,26 @@ class FitHomogeneousSemiInf:
             if idx_first >= idx_last:
                 raise ValueError("The upper limit of tau_lims should be greater than the lower limit")
             self.beta = np.mean(self.g2_norm[idx_first:idx_last, :], axis=0) - 1
+        elif self.beta_calculator.mode == "raw_weighted":
+            # Estimate tau_c using a simple exponential model
+            g2_value = 1 + self.beta_calculator.beta0 * np.exp(-self.beta_calculator.alpha)
+            # Find the last value of tau where g2_norm is greater than g2_value
+            mask = self.g2_norm > g2_value
+            last_indices = np.argmax(mask[::-1], axis=0) # Reverse search to find the last index in each iteration (column)
+            last_indices = len(self.tau) - 1 - last_indices # Reverse the indices back
+            tau_c = self.tau[last_indices] # Value of tau corresponding to the last index; this is alpha * tau_c
+            tau_c /= self.beta_calculator.alpha # Divide by alpha to get tau_c
+            # Calculate the weighted beta
+            idx_first = np.argmax(self.tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
+            idx_last = np.argmax(self.tau > self.beta_calculator.tau_lims[1])  # First index after the upper limit
+            if idx_first >= idx_last:
+                raise ValueError("The upper limit of tau_lims should be greater than the lower limit")
+
+            g2_norm_crop = self.g2_norm[idx_first:idx_last, :]
+            tau_crop = self.tau[idx_first:idx_last]
+            tau_crop = np.expand_dims(tau_crop, axis=-1)
+            tau_crop = np.broadcast_to(tau_crop, g2_norm_crop.shape)
+            self.beta = np.mean((self.g2_norm[idx_first:idx_last, :] - 1) * (1 + tau_crop / tau_c), axis=0)
 
     def _calc_g1_norm(self):
         """

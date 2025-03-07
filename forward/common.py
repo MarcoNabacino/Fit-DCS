@@ -3,7 +3,7 @@ import numpy as np
 
 def msd_brownian(tau: np.ndarray, db: float) -> np.ndarray:
     """
-    Calculates the mean-square displacement for a Brownian motion forward.
+    Calculates the mean-square displacement for Brownian motion.
 
     :param tau: Vector of time delays. [s]
     :param db: Diffusion coefficient. [cm^2/s]

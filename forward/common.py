@@ -12,6 +12,16 @@ def msd_brownian(tau: np.ndarray, db: float) -> np.ndarray:
     return 6 * db * tau
 
 
+def d_msd_brownian(tau: np.ndarray) -> np.ndarray:
+    """
+    Calculates the derivative of the mean-square displacement with respect to Db for Brownian motion.
+
+    :param tau: Vector of time delays. [s]
+    :return: The derivative of the mean-square displacement with respect to Db. A vector the same length as tau.
+    """
+    return 6 * tau
+
+
 def msd_ballistic(tau: np.ndarray, v_ms: float) -> np.ndarray:
     """
     Calculates the mean-square displacement for a ballistic motion forward.
@@ -21,6 +31,16 @@ def msd_ballistic(tau: np.ndarray, v_ms: float) -> np.ndarray:
     :return: The mean-square displacement. A vector the same length as tau. [cm^2]
     """
     return v_ms * tau ** 2
+
+
+def d_msd_ballistic(tau: np.ndarray) -> np.ndarray:
+    """
+    Calculates the derivative of the mean-square displacement with respect to v_ms for ballistic motion.
+
+    :param tau: Vector of time delays. [s]
+    :return: The derivative of the mean-square displacement with respect to v_ms. A vector the same length as tau.
+    """
+    return tau ** 2
 
 
 def msd_hybrid(tau: np.ndarray, db: float, v_ms: float) -> np.ndarray:

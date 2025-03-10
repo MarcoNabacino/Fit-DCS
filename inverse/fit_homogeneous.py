@@ -6,9 +6,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-class MSDModel:
+class MSDModelFit:
     """
-    A class for calculating the mean-square displacement (MSD) of the scatterers based on a model.
+    A class for specifying the mean-square displacement (MSD) model for fitting the normalized second-order
+    autocorrelation functions g2_norm. The possible models are:
+
+    - "brownian": Brownian motion model with a single parameter, the diffusion coefficient (db).
+
+    - "ballistic": ballistic motion model with a single parameter, the mean square speed of the
+        scatterers (v_ms).
+
+    - "hybrid": hybrid model that combines Brownian and ballistic motion with two parameters, the
+        diffusion coefficient (db) and the mean square speed of the scatterers (v_ms).
     """
 
     def __init__(self, model_name: str, param_init: Dict, param_bounds: Dict | None = None):
@@ -200,7 +209,7 @@ class FitHomogeneous:
             tau: np.ndarray,
             g2_norm: np.ndarray,
             g1_norm_fn: Callable,
-            msd_model: MSDModel,
+            msd_model: MSDModelFit,
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple | None = None,
             g2_lim_fit: float | None = None,

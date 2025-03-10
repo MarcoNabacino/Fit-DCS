@@ -6,9 +6,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-class MSDModel:
+class MSDModelFit:
     """
-    A class for calculating the mean-square displacement (MSD) of the scatterers based on a model.
+    A class for specifying the mean-square displacement (MSD) model for fitting the normalized second-order
+    autocorrelation functions g2_norm. The possible models are:
+
+    - "brownian": Brownian motion model with a single parameter, the diffusion coefficient (db).
+
+    - "ballistic": ballistic motion model with a single parameter, the mean square speed of the
+        scatterers (v_ms).
+
+    - "hybrid": hybrid model that combines Brownian and ballistic motion with two parameters, the
+        diffusion coefficient (db) and the mean square speed of the scatterers (v_ms).
     """
 
     def __init__(self, model_name: str, param_init: Dict, param_bounds: Dict | None = None):
@@ -200,7 +209,7 @@ class FitHomogeneous:
             tau: np.ndarray,
             g2_norm: np.ndarray,
             g1_norm_fn: Callable,
-            msd_model: MSDModel,
+            msd_model: MSDModelFit,
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple | None = None,
             g2_lim_fit: float | None = None,
@@ -231,8 +240,8 @@ class FitHomogeneous:
         :param kwargs: Additional arguments needed for the g1_norm_model function (e.g., mua, musp, rho, etc.). Each
             keyword argument can either be a float or a vector of floats. If it is a vector, then the length of the
             vector should be the same as the number of iterations in g2_norm. If it is a float, then the same value is
-            used for all iterations.
-            The keyword arguments should be named the same as the arguments of the g1_norm_model function.
+            used for all iterations. The keyword arguments should be named the same as the arguments of the
+            g1_norm_model function.
         """
 
         # Check that the number of rows in g2_norm is the same as the length of tau

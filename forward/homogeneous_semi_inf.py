@@ -24,18 +24,19 @@ def g1(msd: np.ndarray, mua: float, musp: float, rho: float, n: float, lambda0: 
     r = common.effective_reflectance(n)
     zb = 2 / (3 * musp) * (1 + r) / (1 - r)
     r1 = np.sqrt(rho**2 + z0**2)
-    r2 = np.sqrt(rho**2 + (z0 + 2 * zb)**2)
+    rb = np.sqrt(rho**2 + (z0 + 2 * zb)**2)
 
     k = np.sqrt(3 * musp * mua + musp**2 * k0**2 * msd)
 
     term1 = np.exp(-k * r1) / r1
-    term2 = np.exp(-k * r2) / r2
+    term2 = np.exp(-k * rb) / rb
     return term1 - term2
 
 
 def g1_norm(msd: np.ndarray | float, mua: float, musp: float, rho: float, n: float, lambda0: float) -> np.ndarray:
     """
     Calculates the normalized first-order autocorrelation function g1 for a homogeneous semi-infinite medium.
+
     :param msd: Mean-square displacement of the scatterers. A vector the same length as tau. [cm^2]
     :param mua: Absorption coefficient of the medium. [1/cm]
     :param musp: Reduced scattering coefficient of the medium. [1/cm]

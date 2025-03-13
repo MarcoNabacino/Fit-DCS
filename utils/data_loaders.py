@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Dict
+import TimeTagger
 
 
 class DataLoaderALV:
@@ -111,3 +112,66 @@ def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
         tau=tau,
         g2_norm=g2_norm
     )
+
+
+def async_corr(t: np.ndarray, p: int, m: int, s: int, t0: float = 1e-12) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculates the autocorrelation function using the asynchronous algorithm described in [1].
+
+    [1] Wahl, M. et al. (2003), "Fast calculation of fluorescence correlation data with asynchronous time-correlated
+    single photon counting".
+
+    :param t: Vector of photon time tags (unit specified by t0).
+    :param p: Number of time bins in each linear correlator.
+    :param m: Binning ratio. Must divide p.
+    :param s: Number of linear correlators.
+    :param t0: Time resolution of the time tagger [s]. Default is 1 ps.
+    :return: A tuple containing the normalized autocorrelation function g2_norm and the corresponding lag times tau.
+    """
+    # Check that m divides p
+    if p % m != 0:
+        raise ValueError("The binning ratio m must divide the number of time bins per linear correlator p.")
+
+    n_bins = (p - p // m) * s
+    n_tags = len(t)
+    weights = np.ones(n_tags) # Initialize photon weights to 1
+    dt = t.max() - t.min() # Measurement duration
+
+    delta = 1 # Increment of lag time in the linear correlator
+    shift = 0 # Initial lag time
+    tau_index = 0
+    autocorr = np.zeros(n_bins)
+    autotime = np.zeros(n_bins)
+
+    for _ in range(s):
+        # Compute the weights for the current linear correlator by eliminating duplicate tags and summing the weights.
+        t, indices = np.unique(t, return_inverse=True)
+        weights = np.bincount(indices, weights=weights).astype(int)
+
+        for _ in range(int(p / m), p):
+            shift += delta # Increment the lag time, this is p * delta
+            lag = shift // delta
+            tp = t + lag
+
+            n = 0
+            r = 0
+            while n < len(t) - 1 and r < len(tp) - 1:
+                if t[n] < tp[r]:
+                    n += 1
+                elif tp[r] < t[n]:
+                    r += 1
+                elif t[n] == tp[r]:
+                    autocorr[tau_index] += weights[n] * weights[r]
+                    n += 1
+                    r += 1
+
+            autocorr[tau_index] /= delta
+            autotime[tau_index] = shift
+            tau_index += 1
+        delta *= m # Increase bin width, this is m^s
+        t = t // m
+
+    g2_norm = autocorr * dt**2 / (n_tags**2 * (dt - autotime))
+    tau = autotime * t0
+
+    return g2_norm, tau

@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Dict
 import matplotlib.pyplot as plt
+import multiprocessing as mp
 import TimeTagger
 
 
@@ -9,7 +10,7 @@ class DataLoaderALV:
     Data loader for .asc files created by the ALV7004/USB-FAST correlator.
 
     Reads the data from the files that make up a single measurement and stores it in the class attributes:
-    - countrate: Array of shape (n_channels, n_files) containing the countrate for each channel in each file.
+    - countrate: Array of shape (n_files, n_channels) containing the countrate for each channel in each file.
     - tau: Array of shape (n_bins,) containing the time delays.
     - g2_norm: Array of shape (n_bins, n_files, n_channels) containing the normalized g2 data.
     - integration_time: Integration time [s].
@@ -26,7 +27,7 @@ class DataLoaderALV:
         self.n_channels = n_channels
 
         # Initialize the data arrays
-        self.countrate = np.empty((self.n_channels, len(self)))
+        self.countrate = np.empty((len(self), self.n_channels))
         self.tau = np.empty(self.N_BINS)
         self.g2_norm = np.empty((self.N_BINS, len(self), self.n_channels))
         self.integration_time = np.nan # Integration time [s]
@@ -44,7 +45,7 @@ class DataLoaderALV:
         for iteration in range(len(self)):
             filename = self.data_file_paths[iteration]
             data = read_asc(filename, n_ch=self.n_channels, n_bins=self.N_BINS)
-            self.countrate[:, iteration] = data["countrate"]
+            self.countrate[iteration, :] = data["countrate"]
             if iteration == 0:
                 self.tau = data["tau"]
                 self.integration_time = data["integration_time"]
@@ -212,7 +213,7 @@ class DataLoaderTimeTagger:
 
     Reads the data from all the files that make up a single measurement, calculates the countrate and the normalized
     autocorrelation according to the specified integration time and stores it in the class attributes:
-    - countrate: Array of shape (len(channels), n_iterations) containing the countrate for each channel in each iteration.
+    - countrate: Array of shape (n_iterations, len(channels)) containing the countrate for each channel in each iteration.
     - tau: Array of shape (n_bins,) containing the time delays.
     - g2_norm: Array of shape (n_bins, n_iterations, len(channels)) containing the normalized g2 data.
     """
@@ -243,11 +244,11 @@ class DataLoaderTimeTagger:
         self.correlator_args = kwargs
 
         # Initialize data arrays.
-        self.countrate = np.zeros((len(self.channels), len(self)))
+        self.countrate = np.zeros((len(self), (len(self.channels))))
         p, m, s = self.correlator_args['p'], self.correlator_args['m'], self.correlator_args['s']
         n_bins = (p - p // m) * s
         self.tau = np.zeros(n_bins)
-        self.g2_norm = np.empty((n_bins, len(self.channels), len(self)))
+        self.g2_norm = np.empty((n_bins, len(self), len(self.channels)))
 
     def __len__(self):
         """
@@ -313,14 +314,18 @@ class DataLoaderTimeTagger:
             tags = tags_next
             channels = channels_next
 
-            # Calculate the autocorrelation and the countrate for each channel and store the results
-            for i_channel, n_channel in enumerate(self.channels):
-                g2_norm, tau = async_corr(np.array(tt[n_channel]), **self.correlator_args)
-                if idx_iteration == 0:
-                    self.tau = tau
-                self.g2_norm[:, i_channel, idx_iteration] = g2_norm
-                self.countrate[i_channel, idx_iteration] = (
-                        len(tt[n_channel]) / float(tt[n_channel][-1] - tt[n_channel][0]) / self.T0)
+            # Calculate the autocorrelation and the countrate for each channel in parallel, and store the results
+            with mp.Pool() as pool:
+                results = pool.starmap(
+                    self._process_channel,
+                    [(i_channel, n_channel, tt, idx_iteration, self.correlator_args)
+                     for i_channel, n_channel in enumerate(self.channels)]
+                )
+                for i_channel, g2_norm_out, tau_out, countrate_out in results:
+                    if idx_iteration == 0:
+                        self.tau = tau_out
+                    self.g2_norm[:, idx_iteration, i_channel] = g2_norm_out
+                    self.countrate[idx_iteration, i_channel] = countrate_out
 
             # Plot the g2 data if requested
             if plot_interval > 0 and idx_iteration % plot_interval == 0:
@@ -335,3 +340,13 @@ class DataLoaderTimeTagger:
                 plt.show()
 
             idx_iteration += 1
+
+    def _process_channel(self, i_channel, n_channel, tt, idx_iteration, correlator_args):
+        g2_norm, tau = async_corr(np.array(tt[n_channel]), **correlator_args)
+        if idx_iteration == 0:
+            tau_out = tau
+        else:
+            tau_out = None
+        g2_norm_out = g2_norm
+        countrate_out = len(tt[n_channel]) / float(tt[n_channel][-1] - tt[n_channel][0]) / self.T0
+        return i_channel, g2_norm_out, tau_out, countrate_out

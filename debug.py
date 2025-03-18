@@ -7,7 +7,7 @@ file = "data/TERm1010.ttbin"
 m = 2
 (p, s) = data_loaders.get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
 reader = TimeTagger.FileReader(file)
-buffer = reader.getData(200000)
+buffer = reader.getData(1e7)
 t = buffer.getTimestamps()
 ch = buffer.getChannels()
 t = t[ch == 1]
@@ -18,4 +18,4 @@ print("--- %s seconds ---" % (time.time() - start_time))
 
 plt.semilogx(tau, g2)
 plt.ylim([0.8, 1.7])
-#plt.show()
+plt.show()

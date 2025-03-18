@@ -213,7 +213,6 @@ class FitHomogeneous:
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple | None = None,
             g2_lim_fit: float | None = None,
-            plot_interval: int | None = None,
             **kwargs
     ):
         """
@@ -235,8 +234,6 @@ class FitHomogeneous:
             values greater than g2_lim_fit. If both tau_lims_fit and g1_lim_fit are provided, the fitting is done
             starting from tau_lims_fit[0] and up to the minimum of tau_lims_fit[1] and the first time delay where
             g2_norm is greater than g2_lim_fit.
-        :param plot_interval: If not None, a plot showing the g2_norm curves and the fitted curves is displayed every
-            plot_interval iterations.
         :param kwargs: Additional arguments needed for the g1_norm_model function (e.g., mua, musp, rho, etc.). Each
             keyword argument can either be a float or a vector of floats. If it is a vector, then the length of the
             vector should be the same as the number of iterations in g2_norm. If it is a float, then the same value is
@@ -268,7 +265,6 @@ class FitHomogeneous:
         self.msd_model = msd_model
         self.beta_calculator = beta_calculator
         self.g2_lim_fit = g2_lim_fit
-        self.plot_interval = plot_interval if plot_interval is not None else 0
 
         # Initialize the beta and fitted_params attribute to None
         self.beta = None
@@ -280,9 +276,12 @@ class FitHomogeneous:
         """
         return self.g2_norm.shape[1]
 
-    def fit(self) -> pd.DataFrame:
+    def fit(self, plot_interval: int = 0) -> pd.DataFrame:
         """
         Fits the model to the data and stores the beta and fitted parameters in the beta and fitted_params attribute.
+
+        :param plot_interval: If not 0, a plot showing the g2_norm curves and the fitted curves is displayed every
+            plot_interval iterations. Default is 0 (no plots).
         :return: A DataFrame with beta and the fitted parameters for each iteration.
         """
 
@@ -291,14 +290,13 @@ class FitHomogeneous:
 
         if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             self._calc_beta()
-
             for i in range(len(self)):
                 # Fit the MSD params and store the results in fitted_params
                 curr_params = self._fit_msd_params(i)
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
 
-                if self.plot_interval > 0 and i % self.plot_interval == 0:
+                if plot_interval > 0 and i % plot_interval == 0:
                     fig = self._plot_fit(i)
                     plt.show(fig)
         elif self.beta_calculator.mode == "fit":
@@ -310,7 +308,7 @@ class FitHomogeneous:
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
                 self.beta[i] = curr_beta
-                if self.plot_interval > 0 and i % self.plot_interval == 0:
+                if plot_interval > 0 and i % plot_interval == 0:
                     fig = self._plot_fit(i)
                     plt.show(fig)
 

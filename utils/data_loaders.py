@@ -124,7 +124,8 @@ class DataLoaderTimeTagger:
 
     Reads the data from all the files that make up a single measurement, calculates the countrate and the normalized
     autocorrelation according to the specified integration time and stores it in the class attributes:
-    - countrate: Array of shape (n_iterations, len(channels)) containing the countrate for each channel in each iteration.
+    - countrate: Array of shape (n_iterations, len(channels)) containing the countrate for each channel in each
+        iteration.
     - tau: Array of shape (n_bins,) containing the time delays.
     - g2_norm: Array of shape (n_bins, n_iterations, len(channels)) containing the normalized g2 data.
     """

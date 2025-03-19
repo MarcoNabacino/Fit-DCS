@@ -247,12 +247,14 @@ class DataLoaderTimeTagger:
             idx_iteration += 1
 
     def _process_channel(self, i_channel, tt):
-        g2_norm_out, tau_out = utils.timetagger.async_corr(np.array(tt[i_channel]), **self.correlator_args)
         countrate_out = utils.timetagger.countrate(tt[i_channel], self.T0)
+        g2_norm_out, tau_out = utils.timetagger.async_corr(np.array(tt[i_channel]), **self.correlator_args)
         return i_channel, g2_norm_out, tau_out, countrate_out
 
 
 if __name__ == '__main__':
+    import time
+
     file = "../data/TERm1010.ttbin"
     m = 2
     (p, s) = utils.timetagger.get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
@@ -266,4 +268,7 @@ if __name__ == '__main__':
         s=s,
         tau_start=1e-7
     )
-    loader.load_data(plot_interval=1)
+    start_time = time.time()
+    loader.load_data(plot_interval=0)
+    end_time = time.time()
+    print(f"Elapsed time: {end_time - start_time:.3f} s")

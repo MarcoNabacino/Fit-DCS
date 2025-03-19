@@ -1,55 +1,9 @@
 import numpy as np
+import utils.timetagger
 from typing import Dict
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 import TimeTagger
-
-
-class DataLoaderALV:
-    """
-    Data loader for .asc files created by the ALV7004/USB-FAST correlator.
-
-    Reads the data from the files that make up a single measurement and stores it in the class attributes:
-    - countrate: Array of shape (n_files, n_channels) containing the countrate for each channel in each file.
-    - tau: Array of shape (n_bins,) containing the time delays.
-    - g2_norm: Array of shape (n_bins, n_files, n_channels) containing the normalized g2 data.
-    - integration_time: Integration time [s].
-    """
-    N_BINS = 199 # ALV correlator has 199 time bins
-
-    def __init__(self, data_file_paths: list[str], n_channels: int = 4):
-        """
-        Class constructor.
-        :param data_file_paths: List of paths to the data files, including the file extension.
-        :param n_channels: Number of channels used in the measurement. Default is 4.
-        """
-        self.data_file_paths = data_file_paths
-        self.n_channels = n_channels
-
-        # Initialize the data arrays
-        self.countrate = np.empty((len(self), self.n_channels))
-        self.tau = np.empty(self.N_BINS)
-        self.g2_norm = np.empty((self.N_BINS, len(self), self.n_channels))
-        self.integration_time = np.nan # Integration time [s]
-
-    def __len__(self):
-        """
-        Return the number of data files.
-        """
-        return len(self.data_file_paths)
-
-    def load_data(self):
-        """
-        Load the data from the .asc files and store it in the class attributes.
-        """
-        for iteration in range(len(self)):
-            filename = self.data_file_paths[iteration]
-            data = read_asc(filename, n_ch=self.n_channels, n_bins=self.N_BINS)
-            self.countrate[iteration, :] = data["countrate"]
-            if iteration == 0:
-                self.tau = data["tau"]
-                self.integration_time = data["integration_time"]
-            self.g2_norm[:, iteration, :] = data["g2_norm"]
 
 
 def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
@@ -116,95 +70,51 @@ def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
     )
 
 
-def get_correlator_architecture(alpha: int, m: int, tau_max: float, t0: float) -> tuple[int, int]:
+class DataLoaderALV:
     """
-    Calculate the correlator architecture parameters p and s given the parameters alpha, m and tau_max. Info in [1].
+    Data loader for .asc files created by the ALV7004/USB-FAST correlator.
 
-    [1] Magatti, D. and Ferri, F. (2001), "Fast multi-tau real-time software correlator for dynamic light scattering".
-
-    :param alpha: Ratio of tau to bin width. For an accuracy better than 0.1%, alpha should be at least 7 [1].
-    :param m: Binning ratio. This is typically 2 in hardware correlators.
-    :param tau_max: Maximum lag time of the correlation function [s].
-    :param t0: Time resolution of the time tagger [s].
-    :return: A tuple containing the correlator parameters p and s.
+    Reads the data from the files that make up a single measurement and stores it in the class attributes:
+    - countrate: Array of shape (n_files, n_channels) containing the countrate for each channel in each file.
+    - tau: Array of shape (n_bins,) containing the time delays.
+    - g2_norm: Array of shape (n_bins, n_files, n_channels) containing the normalized g2 data.
+    - integration_time: Integration time [s].
     """
-    p = alpha * m
-    s = np.ceil(np.log(tau_max / t0 / alpha) / np.log(m)).astype(int)
-    return p, s
+    N_BINS = 199 # ALV correlator has 199 time bins
 
+    def __init__(self, data_file_paths: list[str], n_channels: int = 4):
+        """
+        Class constructor.
+        :param data_file_paths: List of paths to the data files, including the file extension.
+        :param n_channels: Number of channels used in the measurement. Default is 4.
+        """
+        self.data_file_paths = data_file_paths
+        self.n_channels = n_channels
 
-def async_corr(t: np.ndarray, p: int, m: int, s: int, tau_start: float = 20e-9, t0: float = 1e-12)\
-        -> tuple[np.ndarray, np.ndarray]:
-    """
-    Calculates the autocorrelation function using the asynchronous algorithm described in [1].
+        # Initialize the data arrays
+        self.countrate = np.empty((len(self), self.n_channels))
+        self.tau = np.empty(self.N_BINS)
+        self.g2_norm = np.empty((self.N_BINS, len(self), self.n_channels))
+        self.integration_time = np.nan # Integration time [s]
 
-    [1] Wahl, M. et al. (2003), "Fast calculation of fluorescence correlation data with asynchronous time-correlated
-    single photon counting".
+    def __len__(self):
+        """
+        Return the number of data files.
+        """
+        return len(self.data_file_paths)
 
-    :param t: Vector of photon time tags (unit specified by t0).
-    :param p: Number of time bins in each linear correlator.
-    :param m: Binning ratio. Must divide p.
-    :param s: Number of linear correlators.
-    :param tau_start: First value of the lag time [s] for which to calculate the autocorrelation. Default is 20 ns.
-    :param t0: Time resolution of the time tagger [s]. Default is 1 ps.
-    :return: A tuple containing the normalized autocorrelation function g2_norm and the corresponding lag times tau.
-    """
-    # Check that m divides p
-    if p % m != 0:
-        raise ValueError("The binning ratio m must divide the number of time bins per linear correlator p.")
-
-    n_overlapped_bins = p // m # Precomputed for speed
-    n_bins = (p - n_overlapped_bins) * s
-    n_tags = len(t)
-    weights = np.ones_like(t, dtype=np.int64) # Initialize photon weights to 1
-    dt = np.float64(t[-1] - t[0]) # Measurement duration
-
-    delta = np.int64(1) # Increment of lag time in the linear correlator
-    shift = np.int64(0) # Initial lag time
-    shift_start = np.int64(tau_start / t0) # Convert tau_start to time tagger units
-    tau_index = np.int64(0)
-    autocorr = np.zeros(n_bins, dtype=np.float64)
-    autotime = np.zeros(n_bins, dtype=np.int64)
-
-    for _ in range(s):
-        # If t has duplicates, eliminate them and adjust the weights
-        if np.any(np.diff(t) == 0):
-            # Compute the weights for the current linear correlator by eliminating duplicate tags and summing the
-            # weights.
-            t, indices = np.unique(t, return_inverse=True)
-            weights = np.bincount(indices, weights)
-
-        for _ in range(n_overlapped_bins, p):
-            shift += delta # Increment the lag time, this is p * delta
-            lag = shift // delta
-            # Only compute the autocorrelation for lag times greater than tau_start
-            if shift < shift_start:
-                autotime[tau_index] = shift
-                tau_index += 1
-                continue
-
-            tp = t + lag
-            # Use binary search for fast lookup
-            matches = np.searchsorted(t, tp)
-            # Ensure valid matches
-            valid = matches < len(t)
-            valid[valid] &= t[matches[valid]] == tp[valid]
-
-            # Update autocorrelation
-            autocorr[tau_index] += np.sum(weights[valid] * weights[matches[valid]])
-            autocorr[tau_index] /= delta
-            # Store lag time
-            autotime[tau_index] = shift
-            tau_index += 1
-
-        delta *= m # Increase bin width, this is m^s
-        t //= m # Coarsen resolution
-
-    # Compute final normalized autocorrelation
-    g2_norm = autocorr * dt**2 / (n_tags**2 * (dt - autotime))
-    tau = autotime * t0
-
-    return g2_norm, tau
+    def load_data(self):
+        """
+        Load the data from the .asc files and store it in the class attributes.
+        """
+        for iteration in range(len(self)):
+            filename = self.data_file_paths[iteration]
+            data = read_asc(filename, n_ch=self.n_channels, n_bins=self.N_BINS)
+            self.countrate[iteration, :] = data["countrate"]
+            if iteration == 0:
+                self.tau = data["tau"]
+                self.integration_time = data["integration_time"]
+            self.g2_norm[:, iteration, :] = data["g2_norm"]
 
 
 class DataLoaderTimeTagger:
@@ -217,7 +127,6 @@ class DataLoaderTimeTagger:
     - tau: Array of shape (n_bins,) containing the time delays.
     - g2_norm: Array of shape (n_bins, n_iterations, len(channels)) containing the normalized g2 data.
     """
-    N_CHANNELS = 8 # Time Tagger has 8 channels
     T0 = 1e-12 # Time resolution of the Time Tagger [s]
 
     def __init__(
@@ -300,14 +209,12 @@ class DataLoaderTimeTagger:
 
             # Only save in tt the photons before the integration time.
             mask = tags - start_time < self.integration_time
-            tags_current = tags[mask]
-            channels_current = channels[mask]
-            tags_next = tags[~mask]
-            channels_next = channels[~mask]
+            tags_current, channels_current = tags[mask], channels[mask]
+            tags_next, channels_next = tags[~mask], channels[~mask]
             # Create list to store the time tags for each channel.
-            tt = [[] for _ in range(self.N_CHANNELS)]
-            for i_channel in range(self.N_CHANNELS):
-                mask_channel = channels_current == i_channel
+            tt = [[] for _ in range(len(self.channels))]
+            for i_channel, n_channel in enumerate(self.channels):
+                mask_channel = channels_current == n_channel
                 tt[i_channel] = tags_current[mask_channel]
 
             # Reset tags and channels, filling them with the remaining events
@@ -317,9 +224,7 @@ class DataLoaderTimeTagger:
             # Calculate the autocorrelation and the countrate for each channel in parallel, and store the results
             with mp.Pool() as pool:
                 results = pool.starmap(
-                    self._process_channel,
-                    [(i_channel, n_channel, tt, idx_iteration, self.correlator_args)
-                     for i_channel, n_channel in enumerate(self.channels)]
+                    self._process_channel, [(i_channel, tt) for i_channel, n_channel in enumerate(self.channels)]
                 )
                 for i_channel, g2_norm_out, tau_out, countrate_out in results:
                     if idx_iteration == 0:
@@ -330,7 +235,7 @@ class DataLoaderTimeTagger:
             # Plot the g2 data if requested
             if plot_interval > 0 and idx_iteration % plot_interval == 0:
                 for i_channel, n_channel in enumerate(self.channels):
-                    plt.semilogx(self.tau, self.g2_norm[:, i_channel, idx_iteration],
+                    plt.semilogx(self.tau, self.g2_norm[:, idx_iteration, i_channel],
                                  label=f"Channel {n_channel}")
                 plt.xlabel("Tau [s]")
                 plt.ylabel("g2")
@@ -341,12 +246,24 @@ class DataLoaderTimeTagger:
 
             idx_iteration += 1
 
-    def _process_channel(self, i_channel, n_channel, tt, idx_iteration, correlator_args):
-        g2_norm, tau = async_corr(np.array(tt[n_channel]), **correlator_args)
-        if idx_iteration == 0:
-            tau_out = tau
-        else:
-            tau_out = None
-        g2_norm_out = g2_norm
-        countrate_out = len(tt[n_channel]) / float(tt[n_channel][-1] - tt[n_channel][0]) / self.T0
+    def _process_channel(self, i_channel, tt):
+        g2_norm_out, tau_out = utils.timetagger.async_corr(np.array(tt[i_channel]), **self.correlator_args)
+        countrate_out = utils.timetagger.countrate(tt[i_channel], self.T0)
         return i_channel, g2_norm_out, tau_out, countrate_out
+
+
+if __name__ == '__main__':
+    file = "../data/TERm1010.ttbin"
+    m = 2
+    (p, s) = utils.timetagger.get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
+    loader = DataLoaderTimeTagger(
+        file,
+        integration_time=1,
+        channels=[2, 4],
+        n_events=int(600e3),
+        p=p,
+        m=m,
+        s=s,
+        tau_start=1e-7
+    )
+    loader.load_data(plot_interval=1)

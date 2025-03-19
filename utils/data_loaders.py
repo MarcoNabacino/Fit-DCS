@@ -1,10 +1,8 @@
-import concurrent.futures
-
 import numpy as np
 import utils.timetagger
 from typing import Dict
 import matplotlib.pyplot as plt
-import multiprocessing as mp
+import concurrent.futures
 from concurrent.futures import ProcessPoolExecutor
 import TimeTagger
 
@@ -256,25 +254,21 @@ class DataLoaderTimeTagger:
 
 
 if __name__ == '__main__':
-    import cProfile
+    import cProfile, pstats
 
     file = "../data/TERm1010.ttbin"
     m = 2
     (p, s) = utils.timetagger.get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
     loader = DataLoaderTimeTagger(
         file,
-        integration_time=1,
-        channels=[2, 4],
-        n_events=int(600e3),
+        integration_time=30e-3,
+        channels=[2, 3, 4],
+        n_events=int(1e5),
         p=p,
         m=m,
         s=s,
         tau_start=1e-7
     )
-    """
-    start_time = time.time()
-    loader.load_data(plot_interval=0)
-    end_time = time.time()
-    print(f"Elapsed time: {end_time - start_time:.3f} s")
-    """
-    cProfile.run("loader.load_data(plot_interval=0)")
+    cProfile.run("loader.load_data()", "profile_results")
+    p = pstats.Stats("profile_results")
+    p.sort_stats("cumulative").print_stats(10)

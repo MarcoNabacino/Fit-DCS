@@ -125,28 +125,20 @@ def unique_with_inverse(sorted_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]
 
 if __name__ == "__main__":
     import TimeTagger
-    import time
-    import matplotlib.pyplot as plt
+    import cProfile, pstats
 
     reader = TimeTagger.FileReader("../data/TERm1010.ttbin")
     buffer = reader.getData(1.106e5)
     tags = buffer.getTimestamps()
     channels = buffer.getChannels()
 
-    t = tags[channels == 1]
-    print(f"Number of tags: {len(t)}")
-    cr = countrate(t)
+    tt = tags[channels == 1]
+    print(f"Number of tags: {len(tt)}")
+    cr = countrate(tt)
     print(f"Count rate: {cr/1000.0:.3f} kHz")
 
     p, s = get_correlator_architecture(alpha=7, m=2, tau_max=1e-2, t0=1e-12)
     tau_start = 1e-7
-    start_time = time.time()
-    g2_norm, tau = async_corr(t, p, m=2, s=s, tau_start=tau_start)
-    end_time = time.time()
-    print(f"Autocorrelation time: {end_time - start_time:.3f} s")
-
-    mask = tau > tau_start
-    tau = tau[mask]
-    g2_norm = g2_norm[mask]
-    plt.semilogx(tau, g2_norm)
-    plt.show()
+    cProfile.run("g2_norm, tau = async_corr(tt, p, m=2, s=s, tau_start=tau_start)", "profile_results")
+    p_res = pstats.Stats("profile_results")
+    p_res.sort_stats("cumulative").print_stats(10)

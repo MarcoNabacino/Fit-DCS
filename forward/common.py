@@ -24,7 +24,7 @@ def d_msd_brownian(tau: np.ndarray) -> np.ndarray:
 
 def msd_ballistic(tau: np.ndarray, v_ms: float) -> np.ndarray:
     """
-    Calculates the mean-square displacement for a ballistic motion forward.
+    Calculates the mean-square displacement for ballistic motion.
 
     :param tau: Vector of time delays. [s]
     :param v_ms: Mean square speed of the scatterers. [cm/s]
@@ -45,7 +45,7 @@ def d_msd_ballistic(tau: np.ndarray) -> np.ndarray:
 
 def msd_hybrid(tau: np.ndarray, db: float, v_ms: float) -> np.ndarray:
     """
-    Calculates the mean-square displacement for a hybrid (Brownian + ballistic) forward.
+    Calculates the mean-square displacement for a hybrid (Brownian + ballistic) model.
 
     :param tau: Vector of time delays. [s]
     :param db: Diffusion coefficient. [cm^2/s]
@@ -67,4 +67,4 @@ def effective_reflectance(n: float) -> float:
         (typically air).
     :return: The effective reflectance of the medium.
     """
-    return - 1.440 / n**2 + 0.710 / n + 0.668 + 0.0636 * n
+    return -1.440 / n**2 + 0.710 / n + 0.668 + 0.0636 * n

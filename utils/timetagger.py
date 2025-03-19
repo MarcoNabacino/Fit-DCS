@@ -101,3 +101,29 @@ def async_corr(t: np.ndarray, p: int, m: int, s: int, tau_start: float = 20e-9, 
     tau = autotime * t0
 
     return g2_norm, tau
+
+
+if __name__ == "__main__":
+    import TimeTagger
+    import time
+    import matplotlib.pyplot as plt
+
+    reader = TimeTagger.FileReader("../data/TERm1010.ttbin")
+    buffer = reader.getData(2e5)
+    tags = buffer.getTimestamps()
+    channels = buffer.getChannels()
+
+    t = tags[channels == 1]
+    print(f"Number of tags: {len(t)}")
+    p, s = get_correlator_architecture(alpha=7, m=2, tau_max=1e-2, t0=1e-12)
+    tau_start = 1e-7
+    start_time = time.time()
+    g2_norm, tau = async_corr(t, p, m=2, s=s, tau_start=tau_start)
+    end_time = time.time()
+    print(f"Elapsed time: {end_time - start_time:.3f} s")
+
+    mask = tau > tau_start
+    tau = tau[mask]
+    g2_norm = g2_norm[mask]
+    plt.semilogx(tau, g2_norm)
+    plt.show()

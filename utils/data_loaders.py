@@ -1,8 +1,11 @@
+import concurrent.futures
+
 import numpy as np
 import utils.timetagger
 from typing import Dict
 import matplotlib.pyplot as plt
 import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 import TimeTagger
 
 
@@ -194,57 +197,57 @@ class DataLoaderTimeTagger:
         max_time = tags[-1] # Maximum time tag that has been read
 
         idx_iteration = 0
-        while len(tags) != 0:
-            # Update start time
-            start_time = tags[0]
-            # Check if we need to read more events to reach the integration time.
-            while max_time - start_time < self.integration_time and file_reader.hasData():
-                buffer = file_reader.getData(self.n_events)
-                new_tags = buffer.getTimestamps()
-                new_channels = buffer.getChannels()
-                tags = np.append(tags, new_tags)
-                channels = np.append(channels, new_channels)
-                max_time = tags[-1]
-            # Now we either exceeded the integration time or reached the end of the file.
+        with ProcessPoolExecutor() as executor:
+            while len(tags) != 0:
+                # Update start time
+                start_time = tags[0]
+                # Check if we need to read more events to reach the integration time.
+                while max_time - start_time < self.integration_time and file_reader.hasData():
+                    buffer = file_reader.getData(self.n_events)
+                    new_tags = buffer.getTimestamps()
+                    new_channels = buffer.getChannels()
+                    tags = np.append(tags, new_tags)
+                    channels = np.append(channels, new_channels)
+                    max_time = tags[-1]
+                # Now we either exceeded the integration time or reached the end of the file.
 
-            # Only save in tt the photons before the integration time.
-            mask = tags - start_time < self.integration_time
-            tags_current, channels_current = tags[mask], channels[mask]
-            tags_next, channels_next = tags[~mask], channels[~mask]
-            # Create list to store the time tags for each channel.
-            tt = [[] for _ in range(len(self.channels))]
-            for i_channel, n_channel in enumerate(self.channels):
-                mask_channel = channels_current == n_channel
-                tt[i_channel] = tags_current[mask_channel]
+                # Only save in tt the photons before the integration time.
+                mask = tags - start_time < self.integration_time
+                tags_current, channels_current = tags[mask], channels[mask]
+                tags_next, channels_next = tags[~mask], channels[~mask]
+                # Create list to store the time tags for each channel.
+                tt = [[] for _ in range(len(self.channels))]
+                for i_channel, n_channel in enumerate(self.channels):
+                    mask_channel = channels_current == n_channel
+                    tt[i_channel] = tags_current[mask_channel]
 
-            # Reset tags and channels, filling them with the remaining events
-            tags = tags_next
-            channels = channels_next
+                # Reset tags and channels, filling them with the remaining events
+                tags = tags_next
+                channels = channels_next
 
-            # Calculate the autocorrelation and the countrate for each channel in parallel, and store the results
-            with mp.Pool() as pool:
-                results = pool.starmap(
-                    self._process_channel, [(i_channel, tt) for i_channel, n_channel in enumerate(self.channels)]
-                )
-                for i_channel, g2_norm_out, tau_out, countrate_out in results:
+                # Calculate the autocorrelation and the countrate for each channel in parallel, and store the results
+                futures = {executor.submit(self._process_channel, i_channel, tt):
+                               i_channel for i_channel in range(len(self.channels))}
+                for future in concurrent.futures.as_completed(futures):
+                    i_channel, g2_norm_out, tau_out, countrate_out = future.result()
                     if idx_iteration == 0:
                         self.tau = tau_out
                     self.g2_norm[:, idx_iteration, i_channel] = g2_norm_out
                     self.countrate[idx_iteration, i_channel] = countrate_out
 
-            # Plot the g2 data if requested
-            if plot_interval > 0 and idx_iteration % plot_interval == 0:
-                for i_channel, n_channel in enumerate(self.channels):
-                    plt.semilogx(self.tau, self.g2_norm[:, idx_iteration, i_channel],
-                                 label=f"Channel {n_channel}")
-                plt.xlabel("Tau [s]")
-                plt.ylabel("g2")
-                plt.ylim(0.8, 1.7)
-                plt.title(f"Iteration {idx_iteration}")
-                plt.legend()
-                plt.show()
+                # Plot the g2 data if requested
+                if plot_interval > 0 and idx_iteration % plot_interval == 0:
+                    for i_channel, n_channel in enumerate(self.channels):
+                        plt.semilogx(self.tau, self.g2_norm[:, idx_iteration, i_channel],
+                                     label=f"Channel {n_channel}")
+                    plt.xlabel("Tau [s]")
+                    plt.ylabel("g2")
+                    plt.ylim(0.8, 1.7)
+                    plt.title(f"Iteration {idx_iteration}")
+                    plt.legend()
+                    plt.show()
 
-            idx_iteration += 1
+                idx_iteration += 1
 
     def _process_channel(self, i_channel, tt):
         countrate_out = utils.timetagger.countrate(tt[i_channel], self.T0)
@@ -253,7 +256,7 @@ class DataLoaderTimeTagger:
 
 
 if __name__ == '__main__':
-    import time
+    import cProfile
 
     file = "../data/TERm1010.ttbin"
     m = 2
@@ -268,7 +271,10 @@ if __name__ == '__main__':
         s=s,
         tau_start=1e-7
     )
+    """
     start_time = time.time()
     loader.load_data(plot_interval=0)
     end_time = time.time()
     print(f"Elapsed time: {end_time - start_time:.3f} s")
+    """
+    cProfile.run("loader.load_data(plot_interval=0)")

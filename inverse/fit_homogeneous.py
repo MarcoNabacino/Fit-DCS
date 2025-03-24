@@ -266,9 +266,10 @@ class FitHomogeneous:
         self.beta_calculator = beta_calculator
         self.g2_lim_fit = g2_lim_fit
 
-        # Initialize the beta and fitted_params attribute to None
-        self.beta = None
-        self.fitted_params = None
+        # Initialize the beta, fitted_params, and chi2 attributes.
+        self.beta = np.full(len(self), np.nan)
+        self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
+        self.chi2 = np.full(len(self), np.nan)
 
     def __len__(self):
         """
@@ -284,30 +285,26 @@ class FitHomogeneous:
             plot_interval iterations. Default is 0 (no plots).
         :return: A DataFrame with beta and the fitted parameters for each iteration.
         """
-
-        # Initialize arrays to store the fitted parameters values
-        self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
-
         if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             self._calc_beta()
             for i in range(len(self)):
                 # Fit the MSD params and store the results in fitted_params
-                curr_params = self._fit_msd_params(i)
+                curr_params, curr_chi2 = self._fit_msd_params(i)
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
+                self.chi2[i] = curr_chi2
 
                 if plot_interval > 0 and i % plot_interval == 0:
                     fig = self._plot_fit(i)
                     plt.show(fig)
         elif self.beta_calculator.mode == "fit":
-            self.beta = np.full(len(self), np.nan)
-
             for i in range(len(self)):
                 # Fit both the MSD params and beta and store the results in fitted_params and beta
-                curr_params, curr_beta = self._fit_beta_and_msd_params(i)
+                curr_params, curr_beta, curr_chi2 = self._fit_beta_and_msd_params(i)
                 for param in curr_params:
                     self.fitted_params[param][i] = curr_params[param]
                 self.beta[i] = curr_beta
+                self.chi2[i] = curr_chi2
                 if plot_interval > 0 and i % plot_interval == 0:
                     fig = self._plot_fit(i)
                     plt.show(fig)
@@ -315,6 +312,7 @@ class FitHomogeneous:
        # Create a DataFrame with the fitted parameters and beta
         df = pd.DataFrame(self.fitted_params)
         df["beta"] = self.beta
+        df["chi2"] = self.chi2
 
         return df
 
@@ -357,12 +355,12 @@ class FitHomogeneous:
             tau_crop = np.broadcast_to(tau_crop, g2_norm_crop.shape)
             self.beta = np.mean((self.g2_norm[idx_first:idx_last, :] - 1) * (1 + tau_crop / tau_c), axis=0)
 
-    def _fit_msd_params(self, i: int) -> Dict:
+    def _fit_msd_params(self, i: int) -> tuple[Dict, float]:
         """
         Fits only the MSD params of the model (i.e., no beta) to a single iteration.
 
         :param i: Index of the iteration to fit.
-        :return: A Dict with the fitted parameters.
+        :return: A 2-tuple containing a Dict with the fitted parameters and the chi2 value.
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
         idx_first, idx_last = self._crop_to_fit_interval(i)
@@ -404,10 +402,12 @@ class FitHomogeneous:
 
         if not res.success:
             fitted_params = dict(zip(self.msd_model.params, np.full(len(res.x), np.nan)))
+            chi2 = np.nan
         else:
             fitted_params = dict(zip(self.msd_model.params, res.x * scale_array))
+            chi2 = res.fun
 
-        return fitted_params
+        return fitted_params, chi2
 
     def _crop_to_fit_interval(self, i: int) -> tuple:
         """
@@ -446,7 +446,7 @@ class FitHomogeneous:
         Fits both the beta and MSD params of the model to a single iteration.
 
         :param i: Index of the iteration to fit.
-        :return: A tuple with the fitted beta and the fitted parameters dictionary.
+        :return: A 3-tuple with the fitted beta, the fitted parameters' dictionary, and the chi2 value.
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
         idx_first, idx_last = self._crop_to_fit_interval(i)
@@ -496,11 +496,13 @@ class FitHomogeneous:
         if not res.success:
             fitted_params = dict(zip(self.msd_model.params, np.full(len(res.x) - 1, np.nan)))
             fitted_beta = np.nan
+            chi2 = np.nan
         else:
             fitted_params = dict(zip(self.msd_model.params, res.x[:-1] * scale_array))
             fitted_beta = res.x[-1]
+            chi2 = res.fun
 
-        return fitted_params, fitted_beta
+        return fitted_params, fitted_beta, chi2
 
     def _plot_fit(self, i: int) -> plt.figure:
         """

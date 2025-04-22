@@ -7,70 +7,6 @@ from concurrent.futures import ProcessPoolExecutor
 import TimeTagger
 
 
-def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
-    """
-    Read the data from a single .asc file.
-    :param filename: Path to the .asc file.
-    :param n_ch: Number of channels used in the measurement. Default is 4.
-    :param n_bins: Number of bins in the g2 data. Default is 199.
-    :return: Dictionary containing the data. Keys are "date", "time", "integration_time", "countrate", "tau", "g2_norm".
-    """
-    with open(filename, "r") as file:
-        # Keep reading lines until you find the line that starts with "Date", which contains the date between quotes
-        line = file.readline()
-        while "Date" not in line:
-            line = file.readline()
-        date = line.split('"')[1]
-        # Keep reading lines until you find the line that starts with "Time", which contains the time between quotes
-        while "Time" not in line:
-            line = file.readline()
-        time = line.split('"')[1]
-        # Keep reading lines until you find the line that starts with "Duration", which contains the integration time
-        # at the end of the line
-        while "Duration" not in line:
-            line = file.readline()
-        integration_time = float(line.split()[-1])
-        # Keep reading lines until you find the line that starts with "MeanCR0", which contains the
-        # countrate for channel 0, while the next lines contain the countrate for the other channels
-        countrate = np.empty(n_ch)
-        while "MeanCR0" not in line:
-            line = file.readline()
-        countrate[0] = float(line.split()[-1])
-        for i in range(1, n_ch):
-            line = file.readline()
-            countrate[i] = float(line.split()[-1])
-        # Keep reading lines until you find the line that contains "Correlation" in quotes, after which the tau and g2
-        # data starts.
-        while "Correlation" not in line:
-            line = file.readline()
-        # The next lines contain tau and the g2 for each channel, until you find an empty line. Note that the
-        # file might have fewer lines than the expected n_bins, typically for the last iteration.
-        tau = np.empty(n_bins)
-        g2_norm = np.empty((n_bins, n_ch))
-        for i_bin in range(n_bins):
-            line = file.readline()
-            if not line:
-                break
-            values = line.encode("utf-8").split()
-            tau[i_bin] = float(values[0])
-            for ch in range(n_ch):
-                g2_norm[i_bin, ch] = float(values[ch + 1])
-
-    # The correlator saves g2 - 1, so we need to add 1 to get the normalized g2
-    g2_norm += 1
-    # Tau is stored in ms, so we need to convert it to s
-    tau *= 1e-3
-
-    return dict(
-        date=date,
-        time=time,
-        integration_time=integration_time,
-        countrate=countrate,
-        tau=tau,
-        g2_norm=g2_norm
-    )
-
-
 class DataLoaderALV:
     """
     Data loader for .asc files created by the ALV7004/USB-FAST correlator.
@@ -252,6 +188,93 @@ class DataLoaderTimeTagger:
         countrate_out = utils.timetagger.countrate(tt[i_channel], self.T0)
         g2_norm_out, tau_out = utils.timetagger.async_corr(np.array(tt[i_channel]), **self.correlator_args)
         return i_channel, g2_norm_out, tau_out, countrate_out
+
+
+def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
+    """
+    Read the data from a single .asc file.
+    :param filename: Path to the .asc file.
+    :param n_ch: Number of channels used in the measurement. Default is 4.
+    :param n_bins: Number of bins in the g2 data. Default is 199.
+    :return: Dictionary containing the data. Keys are "date", "time", "integration_time", "countrate", "tau", "g2_norm".
+    """
+    with open(filename, "r") as file:
+        # Keep reading lines until you find the line that starts with "Date", which contains the date between quotes
+        line = file.readline()
+        while "Date" not in line:
+            line = file.readline()
+        date = line.split('"')[1]
+        # Keep reading lines until you find the line that starts with "Time", which contains the time between quotes
+        while "Time" not in line:
+            line = file.readline()
+        time = line.split('"')[1]
+        # Keep reading lines until you find the line that starts with "Duration", which contains the integration time
+        # at the end of the line
+        while "Duration" not in line:
+            line = file.readline()
+        integration_time = float(line.split()[-1])
+        # Keep reading lines until you find the line that starts with "MeanCR0", which contains the
+        # countrate for channel 0, while the next lines contain the countrate for the other channels
+        countrate = np.empty(n_ch)
+        while "MeanCR0" not in line:
+            line = file.readline()
+        countrate[0] = float(line.split()[-1])
+        for i in range(1, n_ch):
+            line = file.readline()
+            countrate[i] = float(line.split()[-1])
+        # Keep reading lines until you find the line that contains "Correlation" in quotes, after which the tau and g2
+        # data starts.
+        while "Correlation" not in line:
+            line = file.readline()
+        # The next lines contain tau and the g2 for each channel, until you find an empty line. Note that the
+        # file might have fewer lines than the expected n_bins, typically for the last iteration.
+        tau = np.empty(n_bins)
+        g2_norm = np.empty((n_bins, n_ch))
+        for i_bin in range(n_bins):
+            line = file.readline()
+            if not line:
+                break
+            values = line.encode("utf-8").split()
+            tau[i_bin] = float(values[0])
+            for ch in range(n_ch):
+                g2_norm[i_bin, ch] = float(values[ch + 1])
+
+    # The correlator saves g2 - 1, so we need to add 1 to get the normalized g2
+    g2_norm += 1
+    # Tau is stored in ms, so we need to convert it to s
+    tau *= 1e-3
+
+    return dict(
+        date=date,
+        time=time,
+        integration_time=integration_time,
+        countrate=countrate,
+        tau=tau,
+        g2_norm=g2_norm
+    )
+
+
+def weight_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
+    """
+    Calculate the weighted mean of g2_norm using the countrate as weights.
+
+    :param g2_norm: Array of shape (n_bins, n_iterations, n_channels) containing the normalized g2 data.
+    :param countrate: Array of shape (n_iterations, n_channels) containing the countrate for each channel in each
+        iteration.
+    :return: Array of shape (n_bins, n_iterations) containing the weighted mean of g2_norm for each iteration.
+    """
+    # Reshape countrate for broadcasting
+    weights = countrate[:, :, np.newaxis]  # Shape: (n_iterations, n_channels, 1)
+    # Transpose g2_norm to align dimensions for broadcasting
+    g2_transposed = g2_norm.transpose(1, 2, 0)  # Shape: (n_iterations, n_channels, n_bins)
+    # Weighted sum along axis 1 (n_channels), resulting shape: (n_iterations, n_bins)
+    weighted_sum = np.sum(g2_transposed * weights, axis=1)  # Shape: (n_iterations, n_bins)
+    # Sum of weights per iteration
+    weight_sums = np.sum(countrate, axis=1)[:, np.newaxis]  # Shape: (n_iterations, 1)
+    # Compute the weighted mean
+    g2_norm_mean = (weighted_sum / weight_sums).T  # Transpose back to (n_bins, n_iterations)
+
+    return g2_norm_mean
 
 
 if __name__ == '__main__':

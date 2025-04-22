@@ -287,27 +287,23 @@ class FitHomogeneous:
         """
         if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             self._calc_beta()
-            for i in range(len(self)):
+
+        for i in range(len(self)):
+            if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
                 # Fit the MSD params and store the results in fitted_params
                 curr_params, curr_chi2 = self._fit_msd_params(i)
-                for param in curr_params:
-                    self.fitted_params[param][i] = curr_params[param]
-                self.chi2[i] = curr_chi2
-
-                if plot_interval > 0 and i % plot_interval == 0:
-                    fig = self._plot_fit(i)
-                    plt.show(fig)
-        elif self.beta_calculator.mode == "fit":
-            for i in range(len(self)):
+            elif self.beta_calculator.mode == "fit":
                 # Fit both the MSD params and beta and store the results in fitted_params and beta
                 curr_params, curr_beta, curr_chi2 = self._fit_beta_and_msd_params(i)
-                for param in curr_params:
-                    self.fitted_params[param][i] = curr_params[param]
                 self.beta[i] = curr_beta
-                self.chi2[i] = curr_chi2
-                if plot_interval > 0 and i % plot_interval == 0:
-                    fig = self._plot_fit(i)
-                    plt.show(fig)
+
+            for param in curr_params:
+                self.fitted_params[param][i] = curr_params[param]
+
+            self.chi2[i] = curr_chi2
+            if plot_interval > 0 and i % plot_interval == 0:
+                self._plot_fit(i)
+                plt.show()
 
        # Create a DataFrame with the fitted parameters and beta
         df = pd.DataFrame(self.fitted_params)

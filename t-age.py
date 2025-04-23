@@ -17,7 +17,7 @@ info_file = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Trajector
 info = pd.read_excel(info_file)
 # Find indices of measurements to process based on "Eligible DCS" column
 idx_measurements_to_process = info.index[info["Eligible DCS"] == "Yes"].tolist()
-idx_measurements_to_process = [0] # For testing purposes, only process the first measurement
+idx_measurements_to_process = idx_measurements_to_process[20:] # The first 20 measurements have already been processed
 
 # Process each measurement
 for i_meas in idx_measurements_to_process:
@@ -100,13 +100,13 @@ for i_meas in idx_measurements_to_process:
 
     # MBL analysis
     # Find baseline g2_norm and parameters by averaging the last seconds of measurements before the first tag.
-    first_tag_index = info.loc[i_meas, "Tag 1"]
+    first_tag_index = int(info.loc[i_meas, "Tag 1"])
     sampling_frequency = info.loc[i_meas, "Sample Frequency"]
     baseline_time_mbl = 20 # s
     baseline_delta_tag = int(baseline_time_mbl * sampling_frequency)
 
-    db0 = np.mean(fitted_data["Db"].values[first_tag_index - baseline_delta_tag:first_tag_index])
     g2_norm_0 = np.mean(g2_norm[:, first_tag_index - baseline_delta_tag:first_tag_index], axis=-1)
+    db0 = np.mean(fitted_data["Db"].values[first_tag_index - baseline_delta_tag:first_tag_index])
     mua0 = np.mean(mua[first_tag_index - baseline_delta_tag:first_tag_index])
     musp0 = np.mean(musp[first_tag_index - baseline_delta_tag:first_tag_index])
     msd_model_mbl = mbl_hom.MSDModelMBL("brownian", db0)

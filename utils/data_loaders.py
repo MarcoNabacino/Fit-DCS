@@ -280,7 +280,7 @@ def weight_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
 if __name__ == '__main__':
     import cProfile, pstats
 
-    file = "../data/TERm1010.ttbin"
+    file = "../examples/data/TERm1010.ttbin"
     m = 2
     (p, s) = utils.timetagger.get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
     loader = DataLoaderTimeTagger(

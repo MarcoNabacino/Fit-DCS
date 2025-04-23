@@ -123,9 +123,10 @@ class MBLHomogeneous:
 
     def fit(self) -> np.ndarray:
         """
-        Uses the DCS Modified Beer-Lambert law to calculate the Brownian motion diffusion coefficient for each lag time
-        and measurement.
-        :return: The calculated Brownian motion diffusion coefficients. A matrix the same size as g2_norm.
+        Uses the DCS Modified Beer-Lambert law to calculate the msd parameter (Brownian diffusion coefficient or mean
+        square velocity, depending on the model) for each lag time and iteration.
+
+        :return: The calculated parameters for each lag time and iteration. A matrix the same size as g2_norm.
         """
         # Calculate variations in mua and musp from the baseline
         delta_mua = self.mua - self.d_factors_fn_args["mua0"]

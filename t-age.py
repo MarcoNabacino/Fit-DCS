@@ -17,13 +17,19 @@ info_file = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Trajector
 info = pd.read_excel(info_file)
 # Find indices of measurements to process based on "Eligible DCS" column
 idx_measurements_to_process = info.index[info["Eligible DCS"] == "Yes"].tolist()
-idx_measurements_to_process = idx_measurements_to_process[20:] # The first 20 measurements have already been processed
+idx_measurements_to_process = idx_measurements_to_process[168:]
 
 # Process each measurement
 for i_meas in idx_measurements_to_process:
+    subject = info.loc[i_meas, "Subject"]
+    time_point = info.loc[i_meas, "Time Point"]
+    exercise = info.loc[i_meas, "Exercise"][0:3]
+    print(f"Processing measurement {i_meas} ({subject}_{time_point}_{exercise})...")
+
     # Get list of DCS files
     DCS_folder = info.loc[i_meas, "DCS Folder"]
     DCS_path = os.path.join(DCS_root, DCS_folder)
+    print(f"Loading DCS data from {DCS_path}...")
     DCS_data_files = glob.glob(DCS_path + "*")
     DCS_data_files.sort()
     DCS_data_files = DCS_data_files[:-1] # Discard last file
@@ -41,11 +47,9 @@ for i_meas in idx_measurements_to_process:
     g2_norm = g2_norm[mask]
 
     # Read optical parameters from TRS file
-    subject = info.loc[i_meas, "Subject"]
-    time_point = info.loc[i_meas, "Time Point"]
-    exercise = info.loc[i_meas, "Exercise"][0:3]
     TRS_file_name = f"{subject}_{time_point}_{exercise}.csv"
     TRS_path = os.path.join(TRS_root, TRS_file_name)
+    print(f"Loading TRS data from {TRS_path}...")
     TRS_data = pd.read_csv(TRS_path)
     mua = TRS_data["VarMua0Opt830"].values
     musp = TRS_data["VarMus0Opt830"].values
@@ -56,6 +60,7 @@ for i_meas in idx_measurements_to_process:
     lambda0 = 785 # nm
 
     # Fit DCS data
+    print("Fitting DCS data...")
     #beta_calculator =  fit_hom.BetaCalculator(mode="fixed", beta_fixed=0.50)
     #beta_calculator = fit_hom.BetaCalculator(mode="raw", tau_lims=(1e-7, 2e-7))
     beta_calculator = fit_hom.BetaCalculator(mode="fit", beta_init=0.48, beta_bounds=(0.4, 0.6))
@@ -96,10 +101,12 @@ for i_meas in idx_measurements_to_process:
     # Save fitted data to CSV file
     output_file_name = f"{subject}_{time_point}_{exercise}.csv"
     output_path = os.path.join(output_folder, output_file_name)
+    print(f"Saving fitted data to {output_path}...")
     fitted_data.to_csv(output_path, index=False)
 
     # MBL analysis
     # Find baseline g2_norm and parameters by averaging the last seconds of measurements before the first tag.
+    print("Performing MBL analysis...")
     first_tag_index = int(info.loc[i_meas, "Tag 1"])
     sampling_frequency = info.loc[i_meas, "Sample Frequency"]
     baseline_time_mbl = 20 # s
@@ -130,7 +137,9 @@ for i_meas in idx_measurements_to_process:
     # Save MBL analysis results to a separate .csv file
     output_file_name_mbl = f"{subject}_{time_point}_{exercise}_mbl.csv"
     output_path_mbl = os.path.join(output_folder, output_file_name_mbl)
+    print(f"Saving MBL analysis results to {output_path_mbl}...")
     # First row is tau transposed, subsequent rows are Db_mbl transposed
     # (each row is an iteration and each column a different tau)
     db_mbl_output = np.vstack((tau.T, db_mbl.T))
     np.savetxt(output_path_mbl, db_mbl_output, delimiter=",")
+    print("Done.")

@@ -17,7 +17,6 @@ info_file = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Trajector
 info = pd.read_excel(info_file)
 # Find indices of measurements to process based on "Eligible DCS" column
 idx_measurements_to_process = info.index[info["Eligible DCS"] == "Yes"].tolist()
-idx_measurements_to_process = idx_measurements_to_process[168:]
 
 # Process each measurement
 for i_meas in idx_measurements_to_process:
@@ -51,8 +50,15 @@ for i_meas in idx_measurements_to_process:
     TRS_path = os.path.join(TRS_root, TRS_file_name)
     print(f"Loading TRS data from {TRS_path}...")
     TRS_data = pd.read_csv(TRS_path)
-    mua = TRS_data["VarMua0Opt830"].values
-    musp = TRS_data["VarMus0Opt830"].values
+    mua = TRS_data["VarMua0Opt830"].values.copy()
+    musp = TRS_data["VarMus0Opt830"].values.copy()
+    # Some mua and musp values are nan, replace them with the previous value. Since in some cases there are multiple
+    # consecutive nan values, we need to use a loop to replace them.
+    for j in range(1, len(mua)):
+        if np.isnan(mua[j]):
+            mua[j] = mua[j - 1]
+        if np.isnan(musp[j]):
+            musp[j] = musp[j - 1]
 
     # Forward model parameters
     rho = 2.5 # cm

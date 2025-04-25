@@ -16,13 +16,14 @@ output_folder = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Traje
 info_file = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Trajector-Age/Database_misure.xlsx"
 info = pd.read_excel(info_file)
 # Find indices of measurements to process based on "Eligible DCS" column
-idx_measurements_to_process = info.index[info["Eligible DCS"] == "Yes"].tolist()
+mask = (info["Eligible DCS"] == "Yes") & (info["City"] == "PR")
+idx_measurements_to_process = info.index[mask].tolist()
 
 # Process each measurement
 for i_meas in idx_measurements_to_process:
     subject = info.loc[i_meas, "Subject"]
     time_point = info.loc[i_meas, "Time Point"]
-    exercise = info.loc[i_meas, "Exercise"][0:3]
+    exercise = info.loc[i_meas, "Exercise"]
     print(f"Processing measurement {i_meas} ({subject}_{time_point}_{exercise})...")
 
     # Get list of DCS files
@@ -87,41 +88,34 @@ for i_meas in idx_measurements_to_process:
         lambda0=lambda0
     )
     fitted_data = fitter.fit(plot_interval=0)
-
+    # Rename columns in fitted_data DataFrame
+    fitted_data.rename(columns={"db": "Db", "chi2": "Chi2DCS"}, inplace=True)
     # Add average counts between all channels to fitted_data DataFrame
     countrate = np.mean(loader.countrate, axis=-1)
-    counts = countrate / info.loc[i_meas, "Sample Frequency"]
+    sampling_frequency = info.loc[i_meas, "Sample Frequency"]
+    counts = countrate / sampling_frequency
     fitted_data["CountsDCS"] = counts
-    # Add Iteration column at the beginning of the fitted_data DataFrame
-    iteration = np.arange(0, len(fitted_data))
-    fitted_data.insert(0, "Iteration", iteration)
-    # Rename some columns in fitted_data DataFrame
-    fitted_data.rename(columns={
-        "db": "Db",
-        "chi2": "Chi2DCS",
-    }, inplace=True)
-
-    # Merge fitted_data with TRS_data based on the "Iteration" column
-    fitted_data = pd.merge(TRS_data, fitted_data, on="Iteration", how="left", validate="one_to_one")
+    # Add columns of fitted_data to TRS_data DataFrame by joining on indices
+    output_df = TRS_data.join(fitted_data)
 
     # Save fitted data to CSV file
     output_file_name = f"{subject}_{time_point}_{exercise}.csv"
     output_path = os.path.join(output_folder, output_file_name)
     print(f"Saving fitted data to {output_path}...")
-    fitted_data.to_csv(output_path, index=False)
+    output_df.to_csv(output_path, index=False)
+
 
     # MBL analysis
     # Find baseline g2_norm and parameters by averaging the last seconds of measurements before the first tag.
     print("Performing MBL analysis...")
     first_tag_index = int(info.loc[i_meas, "Tag 1"])
-    sampling_frequency = info.loc[i_meas, "Sample Frequency"]
     baseline_time_mbl = 20 # s
     baseline_delta_tag = int(baseline_time_mbl * sampling_frequency)
-
     g2_norm_0 = np.mean(g2_norm[:, first_tag_index - baseline_delta_tag:first_tag_index], axis=-1)
     db0 = np.mean(fitted_data["Db"].values[first_tag_index - baseline_delta_tag:first_tag_index])
     mua0 = np.mean(mua[first_tag_index - baseline_delta_tag:first_tag_index])
     musp0 = np.mean(musp[first_tag_index - baseline_delta_tag:first_tag_index])
+    # Perform MBL analysis.
     msd_model_mbl = mbl_hom.MSDModelMBL("brownian", db0)
     mbl_analyzer = mbl_hom.MBLHomogeneous(
         tau,
@@ -137,7 +131,6 @@ for i_meas in idx_measurements_to_process:
         n=n,
         lambda0=lambda0
     )
-
     db_mbl = mbl_analyzer.fit()
 
     # Save MBL analysis results to a separate .csv file
@@ -148,4 +141,5 @@ for i_meas in idx_measurements_to_process:
     # (each row is an iteration and each column a different tau)
     db_mbl_output = np.vstack((tau.T, db_mbl.T))
     np.savetxt(output_path_mbl, db_mbl_output, delimiter=",")
+
     print("Done.")

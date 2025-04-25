@@ -283,7 +283,7 @@ class FitHomogeneous:
 
         :param plot_interval: If not 0, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations. Default is 0 (no plots).
-        :return: A DataFrame with beta and the fitted parameters for each iteration.
+        :return: A DataFrame with beta, the fitted parameters, and the chi value for each iteration.
         """
         if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             self._calc_beta()

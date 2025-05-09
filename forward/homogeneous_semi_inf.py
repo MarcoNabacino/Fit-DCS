@@ -21,8 +21,8 @@ def g1(msd: np.ndarray, mua: float, musp: float, rho: float, n: float, lambda0: 
     lambda0 *= 1e-7 # Convert to cm
     k0 = 2 * np.pi / lambda0
     z0 = 1 / musp
-    r = common.effective_reflectance(n)
-    zb = 2 / (3 * musp) * (1 + r) / (1 - r)
+    a = common.a_coefficient_boundary(n)
+    zb = 2 * a / (3 * musp)
     r1 = np.sqrt(rho**2 + z0**2)
     rb = np.sqrt(rho**2 + (z0 + 2 * zb)**2)
 
@@ -72,11 +72,10 @@ def d_factors(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float,
 
     k = np.sqrt(3 * musp0 * mua0 + musp0**2 * k0**2 * msd0)
     mu_eff = np.sqrt(3 * musp0 * mua0)
-    r = common.effective_reflectance(n)
-
     z0 = 1 / musp0
     r1 = np.sqrt(rho**2 + z0**2)
-    zb = 2 / 3 * (1 + r) / (1 - r) * z0
+    a = common.a_coefficient_boundary(n)
+    zb = 2 * a / (3 * musp0)
     rb = np.sqrt((2 * zb + z0)**2 + rho**2)
 
     # dr

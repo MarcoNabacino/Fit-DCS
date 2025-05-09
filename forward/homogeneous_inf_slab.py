@@ -23,8 +23,8 @@ def g1_transmittance(msd: np.ndarray, mua: float, musp: float, rho: float, n: fl
     lambda0 *= 1e-7 # Convert to cm
     k0 = 2 * np.pi / lambda0
     z0 = 1 / musp
-    r = common.effective_reflectance(n)
-    zb = 2 / (3 * musp) * (1 + r) / (1 - r)
+    a = common.a_coefficient_boundary(n)
+    zb = 2 * a / (3 * musp)
     k = np.sqrt(3 * musp * mua + musp**2 * k0**2 * msd)
 
     g1 = 0
@@ -81,8 +81,8 @@ def g1_reflectance(msd: np.ndarray, mua: float, musp: float, rho: float, n: floa
     lambda0 *= 1e-7 # Convert to cm
     k0 = 2 * np.pi / lambda0
     z0 = 1 / musp
-    r = common.effective_reflectance(n)
-    zb = 2 / (3 * musp) * (1 + r) / (1 - r)
+    a = common.a_coefficient_boundary(n)
+    zb = 2 * a / (3 * musp)
     k = np.sqrt(3 * musp * mua + musp**2 * k0**2 * msd)
 
     g1 = 0
@@ -142,8 +142,8 @@ def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, rho: fl
     lambda0 *= 1e-7 # Convert to cm
     k0 = 2 * np.pi / lambda0
     z0 = 1 / musp0
-    r = common.effective_reflectance(n)
-    zb = 2 / (3 * musp0) * (1 + r) / (1 - r)
+    a = common.a_coefficient_boundary(n)
+    zb = 2 * a / (3 * musp0)
     k = np.sqrt(3 * musp0 * mua0 + musp0**2 * k0**2 * msd0)
     dk = (3 * mua0 + musp0 * k0**2 * msd0) / (2 * k) # Derivative of k with respect to musp
     mu_eff = np.sqrt(3 * mua0 * musp0)
@@ -228,8 +228,8 @@ def d_factors_reflectance(msd0: np.ndarray, mua0: float, musp0: float, rho: floa
     lambda0 *= 1e-7  # Convert to cm
     k0 = 2 * np.pi / lambda0
     z0 = 1 / musp0
-    r = common.effective_reflectance(n)
-    zb = 2 / (3 * musp0) * (1 + r) / (1 - r)
+    a = common.a_coefficient_boundary(n)
+    zb = 2 * a / (3 * musp0)
     k = np.sqrt(3 * musp0 * mua0 + musp0 ** 2 * k0 ** 2 * msd0)
     dk = (3 * mua0 + musp0 * k0 ** 2 * msd0) / (2 * k)  # Derivative of k with respect to musp
     mu_eff = np.sqrt(3 * mua0 * musp0)

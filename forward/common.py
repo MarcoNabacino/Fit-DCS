@@ -55,6 +55,18 @@ def msd_hybrid(tau: np.ndarray, db: float, v_ms: float) -> np.ndarray:
     return 6 * db * tau + v_ms * tau ** 2
 
 
+def a_coefficient_boundary(n: float) -> float:
+    """
+    Calculates the A coefficient for the boundary condition.
+
+    :param n: Ratio of the refractive index of the medium to the refractive index of the surrounding medium
+        (typically air).
+    :return: The A coefficient for the boundary condition.
+    """
+    r = effective_reflectance(n)
+    return (1 + r) / (1 - r)
+
+
 def effective_reflectance(n: float) -> float:
     """
     Calculates the effective reflectance of a semi-infinite medium, based on a series expansion of the refractive

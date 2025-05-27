@@ -22,7 +22,7 @@ idx_measurements_to_process = info.index[mask].tolist()
 # Process each measurement
 for i_meas in idx_measurements_to_process:
     subject = info.loc[i_meas, "Subject"]
-    time_point = info.loc[i_meas, "Time Point"]
+    time_point = info.loc[i_meas, "TimePoint"]
     exercise = info.loc[i_meas, "Exercise"]
     print(f"Processing measurement {i_meas} ({subject}_{time_point}_{exercise})...")
 
@@ -40,7 +40,7 @@ for i_meas in idx_measurements_to_process:
     )
     loader.load_data()
     # Weight g2_norm by countrate
-    g2_norm = data_loaders.weight_g2(loader.g2_norm, loader.countrate)
+    g2_norm = data_loaders.weigh_g2(loader.g2_norm, loader.countrate)
     # Discard noisy tau channels
     mask = loader.tau > 1e-7
     tau = loader.tau[mask]

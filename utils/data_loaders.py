@@ -81,7 +81,7 @@ class DataLoaderTimeTagger:
         :param integration_time: Integration time to calculate the autocorrelation [s].
         :param channels: List of channels to be used in the measurement. Default is [1, 2, 3, 4]. Note that they use
             1-based indexing.
-        :param n_events: Number of events to be read at a time from the .ttbin file.
+        :param n_events: Number of events to be read at a time from the .ttbin file, optional. Default is 60e4.
         :param kwargs: Additional keyword arguments to be passed to the async_corr function.
         """
         self.data_file_path = data_file_path
@@ -254,7 +254,7 @@ def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
     )
 
 
-def weight_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
+def weigh_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
     """
     Calculate the weighted mean of g2_norm using the countrate as weights.
 

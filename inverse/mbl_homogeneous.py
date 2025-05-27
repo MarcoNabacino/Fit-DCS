@@ -68,10 +68,10 @@ class MBLHomogeneous:
             typically comes from the forward module.
         :param msd_model: An instance of the MSDModelMBL class that specifies the mean-square displacement model to use.
         :param mua: Absorption coefficient of the medium [1/cm]. If a float, the same value is used for all
-            measurements. If an array, a different value is used for each measurement, and the length of the array
+            iterations. If an array, a different value is used for each iteration, and the length of the array
             should be the same as the number of columns in g2_norm.
         :param musp: Reduced scattering coefficient of the medium [1/cm]. If a float, the same value is used for all
-            measurements. If an array, a different value is used for each measurement, and the length of the array
+            iterations. If an array, a different value is used for each iteration, and the length of the array
             should be the same as the number of columns in g2_norm.
         :param kwargs: Arguments to be passed to d_factors_fn, which gets called as d_factors_fn(msd0, **kwargs), where
             msd0 gets calculated using the baseline parameter provided in msd_model.

@@ -51,8 +51,8 @@ class NoiseAdder:
     To get the correlation time tau_c, a fit of the g2 curve with a simple exponential model
     g2_simple_exp = 1 + beta * np.exp(-tau / tau_c) is performed. Note that this model is a good approximation for
     Brownian motion, or hybrid motion with a dominant Brownian component, but not for ballistic motion.
-    Following [2], the portion of the curve that is fitted is tau < mua / (10 * musp * k0**2 * Db), where k0 is the
-    wavenumber of the light in vacuum. For the default values (mua = 0.1 1/cm, musp = 10 1/cm, Db = 1e-8 cm^2/s,
+    Following [2], the portion of the curve that should be fitted is tau < mua / (10 * musp * k0**2 * Db), where k0
+    is the wavenumber of the light in vacuum. For "standard" values (mua = 0.1 1/cm, musp = 10 1/cm, Db = 1e-8 cm^2/s,
     lambda0 = 785 nm), this results in tau < 1.56e-5 s.
 
     [1] Zhou, C. et al. (2006). "Diffuse optical correlation tomography of cerebral blood flow during cortical
@@ -69,10 +69,8 @@ class NoiseAdder:
             countrate: float | np.ndarray,
             beta: float,
             n_speckle: int,
-            mua: float | np.ndarray = 0.1,
-            musp: float | np.ndarray = 10,
-            db: float | np.ndarray = 1e-8,
-            lambda0: float = 785,
+            tau_lim: float | np.ndarray = 1.56e-5,
+            ensure_decreasing: bool = False
     ):
         """
         Class constructor.
@@ -87,16 +85,12 @@ class NoiseAdder:
         :param beta: Light coherence factor.
         :param n_speckle: Number of independent speckles that contribute to the measurement, that is, the number of
             curves that were averaged to obtain g2_norm.
-        :param mua: Absorption coefficient of the medium [1/cm]. If a float, the same value is used for all iterations.
-            If a vector, a different value is used for each iteration, and the length of the vector should be the same
-            as the number of columns in g2_norm. Default is 0.1 1/cm.
-        :param musp: Reduced scattering coefficient of the medium [1/cm]. If a float, the same value is used for all
-            iterations. If a vector, a different value is used for each iteration, and the length of the vector should
-            be the same as the number of columns in g2_norm. Default is 10 1/cm.
-        :param db: Brownian motion diffusion coefficient [cm^2/s]. If a float, the same value is used for all
-            iterations. If a vector, a different value is used for each iteration, and the length of the vector should
-            be the same as the number of columns in g2_norm. Default is 1e-8 cm^2/s.
-        :param lambda0: Wavelength of the light source [nm]. Default is 785 nm.
+        :param tau_lim: Upper limit of tau for fitting the autocorrelation function [s]. This means that g2_norm is
+            fitted for tau < tau_lim to calculate tau_c. If a float, the same value is used for all iterations.
+            If a vector, its length should be the same as the number of columns in g2_norm.
+        :param ensure_decreasing: A boolean indicating whether to ensure that the standard deviation coming from the
+            noise model decreases with tau. If True, the values after the decreasing portion of sigma are set to
+            min(sigma).
         """
         # Check that the number of rows in g2_norm is the same as the length of tau
         if g2_norm.shape[0] == len(tau):
@@ -118,43 +112,22 @@ class NoiseAdder:
         else:
             raise ValueError("countrate should be a float or an array")
 
-        # Check that mua, musp, and db are either floats or arrays of the same length as the number of columns in
-        # g2_norm
-        if isinstance(mua, (float, int)):
-            self.mua = np.full(len(self), mua)
-        elif isinstance(mua, np.ndarray):
-            if len(mua) == len(self):
-                self.mua = mua
+        # Check that tau_lim is either a float or an array of the same length as the number of columns in g2_norm
+        if isinstance(tau_lim, (float, int)):
+            self.tau_lim = np.full(len(self), tau_lim)
+        elif isinstance(tau_lim, np.ndarray):
+            if len(tau_lim) == len(self):
+                self.tau_lim = tau_lim
             else:
-                raise ValueError("mua should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
+                raise ValueError("tau_lim should be a float or an array of the same length as the number of "
+                                 "columns in g2_norm")
         else:
-            raise ValueError("mua should be a float or an array")
-        if isinstance(musp, (float, int)):
-            self.musp = np.full(len(self), musp)
-        elif isinstance(musp, np.ndarray):
-            if len(musp) == len(self):
-                self.musp = musp
-            else:
-                raise ValueError("musp should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
-        else:
-            raise ValueError("musp should be a float or an array")
-        if isinstance(db, (float, int)):
-            self.db = np.full(len(self), db)
-        elif isinstance(db, np.ndarray):
-            if len(db) == len(self):
-                self.db = db
-            else:
-                raise ValueError("db should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
-        else:
-            raise ValueError("db should be a float or an array")
+            raise ValueError("tau_lim should be a float or an array")
 
         self.t_integration = t_integration
         self.beta = beta
         self.n_speckle = n_speckle
-        self.lambda0 = lambda0
+        self.ensure_decreasing = ensure_decreasing
 
     def __len__(self):
         """
@@ -185,8 +158,12 @@ class NoiseAdder:
                 self.n_speckle
             )
 
+            if self.ensure_decreasing:
+                idx_last_good = np.argmin(sigma_g2)
+                sigma_g2[idx_last_good + 1:] = sigma_g2[idx_last_good]
+
             # Add noise to the g2 curve
-            g2_norm_noisy[:, i] = self.g2_norm[:, i] + np.random.normal(0, sigma_g2)
+            g2_norm_noisy[:, i] = np.random.normal(self.g2_norm[:, i], sigma_g2)
 
         return g2_norm_noisy
 
@@ -198,8 +175,7 @@ class NoiseAdder:
         :return: The fitted correlation time tau_c [s].
         """
         # Calculate the limit of tau for fitting.
-        k0 = 2 * np.pi / (self.lambda0 * 1e-7)  # Convert lambda0 to cm
-        tau_lim = self.mua[i] / (10 * self.musp[i] * k0 ** 2 * self.db[i])
+        tau_lim = self.tau_lim[i]
         tau_fit = self.tau[self.tau < tau_lim]
         g2_fit = self.g2_norm[self.tau < tau_lim, i]
 

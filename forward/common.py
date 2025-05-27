@@ -27,7 +27,7 @@ def msd_ballistic(tau: np.ndarray, v_ms: float) -> np.ndarray:
     Calculates the mean-square displacement for ballistic motion.
 
     :param tau: Vector of time delays. [s]
-    :param v_ms: Mean square speed of the scatterers. [cm/s]
+    :param v_ms: Mean square speed of the scatterers. [cm^2/s^2]
     :return: The mean-square displacement. A vector the same length as tau. [cm^2]
     """
     return v_ms * tau ** 2
@@ -49,7 +49,7 @@ def msd_hybrid(tau: np.ndarray, db: float, v_ms: float) -> np.ndarray:
 
     :param tau: Vector of time delays. [s]
     :param db: Diffusion coefficient. [cm^2/s]
-    :param v_ms: Mean square speed of the scatterers. [cm/s]
+    :param v_ms: Mean square speed of the scatterers. [cm^2/s^2]
     :return: The mean-square displacement. A vector the same length as tau. [cm^2]
     """
     return 6 * db * tau + v_ms * tau ** 2

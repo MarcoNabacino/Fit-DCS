@@ -24,9 +24,9 @@ def countrate(t: np.ndarray, t0: float = 1e-12) -> np.float64:
 
     :param t: Vector of photon time tags.
     :param t0: Time resolution of the time tagger [s]. Default is 1 ps.
-    :return: The count rate in Hz.
+    :return: The count rate in kHz.
     """
-    return len(t) / ((t[-1] - t[0]) * t0)
+    return len(t) / ((t[-1] - t[0]) * t0) / 1000
 
 
 def async_corr(t: np.ndarray, p: int, m: int, s: int, tau_start: float = 20e-9, t0: float = 1e-12) \

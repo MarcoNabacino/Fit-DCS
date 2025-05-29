@@ -113,7 +113,7 @@ def unique_with_inverse(sorted_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]
     """
     Compute unique values and inverse indices for a sorted array.
     """
-    mask = np.empty(len(sorted_arr), dtype=np.bool)
+    mask = np.empty(len(sorted_arr), dtype=bool)
     mask[0] = True
     mask[1:] = sorted_arr[1:] != sorted_arr[:-1]  # Identify unique elements
 

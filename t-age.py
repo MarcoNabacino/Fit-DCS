@@ -39,7 +39,7 @@ for i_meas in idx_measurements_to_process:
         n_channels=4
     )
     loader.load_data()
-    # Weight g2_norm by countrate
+    # Weigh g2_norm by countrate
     g2_norm = data_loaders.weigh_g2(loader.g2_norm, loader.countrate)
     # Discard noisy tau channels
     mask = loader.tau > 1e-7
@@ -68,11 +68,8 @@ for i_meas in idx_measurements_to_process:
 
     # Fit DCS data
     print("Fitting DCS data...")
-    #beta_calculator =  fit_hom.BetaCalculator(mode="fixed", beta_fixed=0.50)
-    #beta_calculator = fit_hom.BetaCalculator(mode="raw", tau_lims=(1e-7, 2e-7))
     beta_calculator = fit_hom.BetaCalculator(mode="fit", beta_init=0.48, beta_bounds=(0.4, 0.6))
     msd_model = fit_hom.MSDModelFit(model_name="brownian", param_init={"db": 1e-8}, param_bounds={"db": (0, None)})
-    #msd_model = fit_hom.MSDModelFit(model_name="hybrid", param_init={"db": 1e-8, "v_ms": 1e-6}, param_bounds={"db": (0, None), "v_ms": (0, None)})
     fitter = fit_hom.FitHomogeneous(
         tau,
         g2_norm,
@@ -89,7 +86,7 @@ for i_meas in idx_measurements_to_process:
     )
     fitted_data = fitter.fit(plot_interval=0)
     # Rename columns in fitted_data DataFrame
-    fitted_data.rename(columns={"db": "Db", "chi2": "Chi2DCS"}, inplace=True)
+    fitted_data.rename(columns={"db": "Db", "chi2": "Chi2DCS", "r2": "R2DCS"}, inplace=True)
     # Add average counts between all channels to fitted_data DataFrame
     countrate = np.mean(loader.countrate, axis=-1)
     sampling_frequency = info.loc[i_meas, "Sample Frequency"]

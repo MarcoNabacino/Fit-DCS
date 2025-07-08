@@ -40,9 +40,11 @@ class DataLoaderALV:
         """
         return len(self.data_file_paths)
 
-    def load_data(self):
+    def load_data(self, plot_interval: int = 0):
         """
         Load the data from the .asc files and store it in the class attributes.
+
+        :param plot_interval: Interval at which to plot the g2 data. Default is 0, which means no plots.
         """
         for iteration in range(len(self)):
             filename = self.data_file_paths[iteration]
@@ -52,6 +54,18 @@ class DataLoaderALV:
                 self.tau = data["tau"]
                 self.integration_time = data["integration_time"]
             self.g2_norm[:, iteration, :] = data["g2_norm"]
+
+            # Plot the g2 data if requested
+            if plot_interval > 0 and iteration % plot_interval == 0:
+                for channel in range(self.n_channels):
+                    plt.semilogx(self.tau, self.g2_norm[:, iteration, channel],
+                                 label=f"Channel {channel}")
+                plt.xlabel("Tau [s]")
+                plt.ylabel("g2")
+                plt.ylim(0.8, 1.7)
+                plt.title(f"Iteration {iteration}")
+                plt.legend()
+                plt.show()
 
 
 class DataLoaderTimeTagger:

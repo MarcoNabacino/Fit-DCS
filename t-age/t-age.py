@@ -16,7 +16,8 @@ output_folder = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Traje
 info_file = "C:/Users/marco/OneDrive - Politecnico di Milano/Dottorato/Trajector-Age/Database_misure.xlsx"
 info = pd.read_excel(info_file)
 # Find indices of measurements to process based on "Eligible DCS" column
-mask = (info["Eligible DCS"] == "Yes") & (info["City"] == "PR")
+#mask = (info["Eligible DCS"] == "Yes") & (info["City"] == "PR")
+mask = (info["Eligible DCS"] == "Yes") & (info["City"] == "PV")
 idx_measurements_to_process = info.index[mask].tolist()
 
 # Process each measurement
@@ -24,35 +25,52 @@ for i_meas in idx_measurements_to_process:
     subject = info.loc[i_meas, "Subject"]
     time_point = info.loc[i_meas, "TimePoint"]
     exercise = info.loc[i_meas, "Exercise"]
+    city = info.loc[i_meas, "City"]
     print(f"Processing measurement {i_meas} ({subject}_{time_point}_{exercise})...")
 
     # Get list of DCS files
     DCS_folder = info.loc[i_meas, "DCS Folder"]
     DCS_path = os.path.join(DCS_root, DCS_folder)
     print(f"Loading DCS data from {DCS_path}...")
-    DCS_data_files = glob.glob(DCS_path + "*")
-    DCS_data_files.sort()
-    DCS_data_files = DCS_data_files[:-1] # Discard last file
-    # Load DCS data
-    loader = data_loaders.DataLoaderALV(
-        DCS_data_files,
-        n_channels=4
-    )
-    loader.load_data()
-    # Weigh g2_norm by countrate
-    g2_norm = data_loaders.weigh_g2(loader.g2_norm, loader.countrate)
-    # Discard noisy tau channels
-    mask = loader.tau > 1e-7
-    tau = loader.tau[mask]
-    g2_norm = g2_norm[mask]
+    if city in ["PR", "TL"]:
+        DCS_data_files = glob.glob(DCS_path + "*")
+        DCS_data_files.sort()
+        DCS_data_files = DCS_data_files[:-1] # Discard last file
+        # Load DCS data
+        loader = data_loaders.DataLoaderALV(
+            DCS_data_files,
+            n_channels=4
+        )
+        loader.load_data()
+        # Weigh g2_norm by countrate
+        g2_norm = data_loaders.weigh_g2(loader.g2_norm, loader.countrate)
+        # Discard noisy tau channels
+        mask = loader.tau > 1e-7
+        tau = loader.tau[mask]
+        g2_norm = g2_norm[mask]
+        countrate = loader.countrate
+    elif city == "PV":
+        DCS_data_file = DCS_path + info.loc[i_meas, "DCS Name"] + ".npz"
+        with np.load(DCS_data_file) as data:
+            tau, g2_norm, countrate = data["tau"], data["g2_norm"], data["countrate"]
+        # Only keep the first (iterations - 1) iterations of g2_norm and countrate
+        iterations = int(info.loc[i_meas, "Iterations"])
+        g2_norm = g2_norm[:, :iterations - 1, :]
+        countrate = countrate[:iterations - 1, :]
+        # Only consider channels 2, 3, and 4 (long distance channels)
+        g2_norm = g2_norm[..., 1:4]
+        countrate = countrate[..., 1:4]
+        # Weigh g2_norm by countrate
+        g2_norm = data_loaders.weigh_g2(g2_norm, countrate)
+        print(tau.shape, g2_norm.shape, countrate.shape)
 
     # Read optical parameters from TRS file
     TRS_file_name = f"{subject}_{time_point}_{exercise}.csv"
     TRS_path = os.path.join(TRS_root, TRS_file_name)
     print(f"Loading TRS data from {TRS_path}...")
     TRS_data = pd.read_csv(TRS_path)
-    mua = TRS_data["VarMua0Opt830"].values.copy()
-    musp = TRS_data["VarMus0Opt830"].values.copy()
+    mua = TRS_data["VarMua0OptIR"].values.copy()
+    musp = TRS_data["VarMus0OptIR"].values.copy()
     # Some mua and musp values are nan, replace them with the previous value. Since in some cases there are multiple
     # consecutive nan values, we need to use a loop to replace them.
     for j in range(1, len(mua)):
@@ -88,7 +106,7 @@ for i_meas in idx_measurements_to_process:
     # Rename columns in fitted_data DataFrame
     fitted_data.rename(columns={"db": "Db", "chi2": "Chi2DCS", "r2": "R2DCS"}, inplace=True)
     # Add average counts between all channels to fitted_data DataFrame
-    countrate = np.mean(loader.countrate, axis=-1)
+    countrate = np.mean(countrate, axis=-1)
     sampling_frequency = info.loc[i_meas, "Sample Frequency"]
     counts = countrate / sampling_frequency
     fitted_data["CountsDCS"] = counts

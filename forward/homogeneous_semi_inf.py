@@ -49,10 +49,11 @@ def g1_norm(msd: np.ndarray | float, mua: float, musp: float, rho: float, n: flo
     return g1(msd, mua, musp, rho, n, lambda0) / g1(0, mua, musp, rho, n, lambda0)
 
 
-def d_factors(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float, lambda0: float) -> tuple:
+def d_factors(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float, lambda0: float) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Calculates the d factors for the DCS Modified Beer-Lambert law for the homogeneous semi-infinite medium. See [1] for
-    an explanation.
+    Calculates the d factors for the DCS Modified Beer-Lambert law for the homogeneous semi-infinite medium.
+    See [1] for an explanation.
 
     [1] Baker, W. et al. (2014), "Modified Beer-Lambert law for blood flow"
     
@@ -63,9 +64,10 @@ def d_factors(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float,
     :param n: Ratio of the refractive index of the medium to the refractive index of the surrounding medium
         (typically air).
     :param lambda0: Wavelength of the light source. [nm]
-    :return: The d factors. A tuple of three vectors (dr, da, ds), each the same length as tau. dr is the d factor for
-        msd, da is the d factor for mua, and ds is the d factor for musp. To get the d factor for the dynamical
-        parameter of interest (i.e., Db or v_ms), multiply dr by d(msd)/d(Db) or d(msd)/d(v_ms), respectively.
+    :return: The d factors. A tuple of three vectors (dr, da, ds), each the same length as tau.
+        dr is the d factor for msd, da is the d factor for mua, and ds is the d factor for musp.
+        To get the d factor for the dynamical parameter of interest (i.e., Db or v_ms), multiply dr by
+        d(msd)/d(Db) or d(msd)/d(v_ms), respectively.
     """
     lambda0 *= 1e-7 # Convert to cm
     k0 = 2 * np.pi / lambda0
@@ -108,3 +110,35 @@ def d_factors(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float,
     ds = 2 * (num / den - num0 / den0)
 
     return dr, da, ds
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    tau = np.logspace(-6, -2, 200)
+    db = 1e-8
+    msd = common.msd_brownian(tau, db)
+    mua = 0.1
+    musp = 10
+    rho = 2
+    n = 1.4
+    lambda0 = 785
+
+    (dr, da, ds) = d_factors(msd, mua, musp, rho, n, lambda0)
+    ddb = dr * common.d_msd_brownian(tau)
+
+    # Plot ddb on right axis, da and ds on left axis
+    fig, ax1 = plt.subplots()
+
+    ax1.semilogx(tau, da, "--", label=r"$d_a$")
+    ax1.semilogx(tau, ds, "--", label=r"$d_s$")
+    ax1.set_xlabel(r"$\tau$ (s)")
+    ax1.set_ylabel(r"$d_a, d_s$ (cm)")
+
+    ax2 = ax1.twinx()
+    ax2.semilogx(tau, ddb * 1e-8, label=r"$d_{Db}$", color='tab:green')
+    ax2.set_ylabel(r"$d_{Db} \times 10^{-8}$ (s/cm$^2$)")
+    ax1.legend(loc="upper left")
+    ax2.legend(loc="upper right")
+
+    plt.title("Sensitivity factors for homogeneous semi-infinite medium")
+    plt.show()

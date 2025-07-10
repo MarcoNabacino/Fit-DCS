@@ -119,7 +119,7 @@ def g1_reflectance_norm(msd: np.ndarray, mua: float, musp: float, rho: float, n:
 
 
 def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float, lambda0: float,
-                            d: float, m_max: int) -> tuple:
+                            d: float, m_max: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Calculates the d factors for the DCS Modified Beer-Lambert law for the laterally infinite slab in transmittance.
     See [1] for an explanation.
@@ -145,7 +145,7 @@ def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, rho: fl
     a = common.a_coefficient_boundary(n)
     zb = 2 * a / (3 * musp0)
     k = np.sqrt(3 * musp0 * mua0 + musp0**2 * k0**2 * msd0)
-    dk = (3 * mua0 + musp0 * k0**2 * msd0) / (2 * k) # Derivative of k with respect to musp
+    dk = (3 * mua0 + 2 * musp0 * k0**2 * msd0) / (2 * k) # Derivative of k with respect to musp
     mu_eff = np.sqrt(3 * mua0 * musp0)
     dmu_eff = 3 * mua0 / (2 * mu_eff) # Derivative of mu_eff with respect to musp
 
@@ -205,7 +205,7 @@ def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, rho: fl
 
 
 def d_factors_reflectance(msd0: np.ndarray, mua0: float, musp0: float, rho: float, n: float, lambda0: float,
-                          d: float, m_max: int) -> tuple:
+                          d: float, m_max: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Calculates the d factors for the DCS Modified Beer-Lambert law for the laterally infinite slab in reflectance.
     See [1] for an explanation.
@@ -231,7 +231,7 @@ def d_factors_reflectance(msd0: np.ndarray, mua0: float, musp0: float, rho: floa
     a = common.a_coefficient_boundary(n)
     zb = 2 * a / (3 * musp0)
     k = np.sqrt(3 * musp0 * mua0 + musp0 ** 2 * k0 ** 2 * msd0)
-    dk = (3 * mua0 + musp0 * k0 ** 2 * msd0) / (2 * k)  # Derivative of k with respect to musp
+    dk = (3 * mua0 + 2 * musp0 * k0 ** 2 * msd0) / (2 * k)  # Derivative of k with respect to musp
     mu_eff = np.sqrt(3 * mua0 * musp0)
     dmu_eff = 3 * mua0 / (2 * mu_eff)  # Derivative of mu_eff with respect to musp
 
@@ -288,3 +288,37 @@ def d_factors_reflectance(msd0: np.ndarray, mua0: float, musp0: float, rho: floa
     ds = - 2 / den * (a1 - a2) + 2 / den0 * (a1_0 - a2_0)
 
     return dr, da, ds
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    tau = np.logspace(-6, -2, 200)
+    db = 1e-8
+    msd = common.msd_brownian(tau, db)
+    mua = 0.1
+    musp = 10
+    rho = 0
+    n = 1.4
+    lambda0 = 785
+    d = 1.0
+    m_max = 10
+
+    (dr, da, ds) = d_factors_transmittance(msd, mua, musp, rho, n, lambda0, d, m_max)
+    ddb = dr * common.d_msd_brownian(tau)
+
+    # Plot ddb on right axis, da and ds on left axis
+    fig, ax1 = plt.subplots()
+
+    ax1.semilogx(tau, da, "--", label=r"$d_a$")
+    ax1.semilogx(tau, ds, "--", label=r"$d_s$")
+    ax1.set_xlabel(r"$\tau$ (s)")
+    ax1.set_ylabel(r"$d_a, d_s$ (cm)")
+
+    ax2 = ax1.twinx()
+    ax2.semilogx(tau, ddb * 1e-8, label=r"$d_{Db}$", color='tab:green')
+    ax2.set_ylabel(r"$d_{Db} \times 10^{-8}$ (s/cm$^2$)")
+    ax1.legend(loc="upper left")
+    ax2.legend(loc="upper right")
+
+    plt.title("Sensitivity factors for homogeneous laterally infinite slab (transmittance)")
+    plt.show()

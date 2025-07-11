@@ -135,7 +135,7 @@ def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, l: tupl
 
     # Some derivatives
     dk_ds = (3 * mua0 + k0 ** 2 * musp0 * msd0) / (2 * k)
-    dmu_eff_ds = (3 * musp0 * mua0) / (2 * mu_eff)
+    dmu_eff_ds = 3 * mua0 / (2 * mu_eff)
     dk_da = 3 * musp0 / (2 * k)
     dmu_eff_da = 3 * musp0 / (2 * mu_eff)
     dk_dmsd = musp0**2 * k0**2 / (2 * k)
@@ -175,7 +175,6 @@ def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, l: tupl
         term3 = -(lz - z) * (k + 1 / r) * (dk_ds * r + (k + 2 / r) * dr_ds)
         return prefactor * (term1 + term2 + term3)
 
-    # dr
     dg1_dk = 0
     dg10_dk = 0
     dg1_ds = 0

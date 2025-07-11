@@ -175,6 +175,7 @@ def d_factors_transmittance(msd0: np.ndarray, mua0: float, musp0: float, l: tupl
         term3 = -(lz - z) * (k + 1 / r) * (dk_ds * r + (k + 2 / r) * dr_ds)
         return prefactor * (term1 + term2 + term3)
 
+    # dr
     dg1_dk = 0
     dg10_dk = 0
     dg1_ds = 0

@@ -60,7 +60,7 @@ class MBLHomogeneous:
 
         :param tau: Vector of time delays [s].
         :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each column corresponds to a
-            different measurement, and each row corresponds to a different time delay. The number of rows should be the
+            different iteration, and each row corresponds to a different time delay. The number of rows should be the
             same as the length of tau.
         :param g2_norm_0: Normalized second-order autocorrelation function for the baseline measurement. A vector the
             same length as tau.
@@ -117,7 +117,7 @@ class MBLHomogeneous:
 
     def __len__(self):
         """
-        Returns the number of measurements.
+        Returns the number of iterations.
         """
         return self.g2_norm.shape[1]
 
@@ -145,7 +145,7 @@ class MBLHomogeneous:
         ds = np.expand_dims(ds, axis=1)
         ds = np.broadcast_to(ds, self.g2_norm.shape)
 
-        # Calculate parameter of interest (Db or v_ms) for each measurement and lag time.
+        # Calculate parameter of interest (Db or v_ms) for each iteration and lag time.
         g2_norm_0 = np.expand_dims(self.g2_norm_0, axis=1)
         g2_norm_0 = np.broadcast_to(g2_norm_0, self.g2_norm.shape)
         delta_od = -np.log((self.g2_norm - 1) / (g2_norm_0 - 1))

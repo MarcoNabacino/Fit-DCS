@@ -83,7 +83,7 @@ class DataLoaderTimeTagger:
 
     def __init__(
             self,
-            data_file_path: str,
+            data_file_paths: str | list[str],
             integration_time: float,
             channels: list[int] = (1, 2, 3, 4),
             n_events: int = 60e4,
@@ -91,14 +91,14 @@ class DataLoaderTimeTagger:
     ):
         """
         Class constructor.
-        :param data_file_path: Path to the .ttbin file, including the file extension.
+        :param data_file_paths: Path(s) to the .ttbin file(s), including the file extension.
         :param integration_time: Integration time to calculate the autocorrelation [s].
         :param channels: List of channels to be used in the measurement. Default is [1, 2, 3, 4]. Note that they use
             1-based indexing.
         :param n_events: Number of events to be read at a time from the .ttbin file, optional. Default is 60e4.
         :param kwargs: Additional keyword arguments to be passed to the async_corr function.
         """
-        self.data_file_path = data_file_path
+        self.data_file_paths = data_file_paths
         self.integration_time = np.int64(integration_time / self.T0) # Convert integration time to time tagger units
         self.channels = channels
         self.n_events = n_events
@@ -117,7 +117,7 @@ class DataLoaderTimeTagger:
         """
         # If length is not defined, calculate it
         if not hasattr(self, "_len"):
-            file_reader = TimeTagger.FileReader(self.data_file_path)
+            file_reader = TimeTagger.FileReader(self.data_file_paths)
             # Read first photon to set start time.
             buffer = file_reader.getData(1)
             t_start = buffer.getTimestamps()[0]
@@ -137,7 +137,7 @@ class DataLoaderTimeTagger:
 
         :param plot_interval: Interval at which to plot the g2 data. Default is 0, which means no plots.
         """
-        file_reader = TimeTagger.FileReader(self.data_file_path)
+        file_reader = TimeTagger.FileReader(self.data_file_paths)
 
         # Read first photon to set start time.
         buffer = file_reader.getData(1)

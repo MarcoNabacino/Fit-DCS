@@ -23,11 +23,19 @@ if __name__ == "__main__":
         exercise = info.loc[i_meas, "Exercise"]
         print(f"Processing measurement {i_meas} ({subject}_{time_point}_{exercise})...")
 
-        # Get list of DCS files
+        # Input file
         DCS_folder = info.loc[i_meas, "DCS Folder"]
         DCS_path = os.path.join(DCS_root, DCS_folder)
         DCS_name = info.loc[i_meas, "DCS Name"]
         DCS_data_file = DCS_path + DCS_name + ".ttbin"
+        # Output file
+        output_folder = DCS_path
+        output_file_name = DCS_name
+        output_file = os.path.join(output_folder, output_file_name)
+        # PVY_010_Intm was split into 2 measurements
+        if (subject == "PVY_010") & (time_point == "T0") & (exercise == "Int"):
+            DCS_data_file = [DCS_path + name + ".ttbin" for name in ["PVY_010_Int", "PVY_010_Int2"]]
+
         print(f"Loading time tags from {DCS_data_file}...")
         # Load DCS data
         m = 2
@@ -52,9 +60,6 @@ if __name__ == "__main__":
         countrate = loader.countrate
 
         # Save autocorrelation data to .npz file
-        output_folder = DCS_path
-        output_file_name = DCS_name
-        output_file = os.path.join(output_folder, output_file_name)
         print(f"Saving autocorrelation data to {output_file}...")
         np.savez(output_file, tau=tau, g2_norm=g2_norm, countrate=countrate)
 

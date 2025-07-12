@@ -26,8 +26,12 @@ if __name__ == "__main__":
         # Get list of DCS files
         DCS_folder = info.loc[i_meas, "DCS Folder"]
         DCS_path = os.path.join(DCS_root, DCS_folder)
-        DCS_name = info.loc[i_meas, "DCS Name"]
-        DCS_data_file = DCS_path + DCS_name + ".ttbin"
+        # PVY_010_Intm was split into 2 measurements
+        if (subject == "PVY_010") & (time_point == "T0") & (exercise == "Int"):
+            DCS_name = ["PVY_010_Int", "PVY_010_Int2"]
+        else:
+            DCS_name = [info.loc[i_meas, "DCS Name"]]
+        DCS_data_file = [DCS_path + name + ".ttbin" for name in DCS_name]
         print(f"Loading time tags from {DCS_data_file}...")
         # Load DCS data
         m = 2

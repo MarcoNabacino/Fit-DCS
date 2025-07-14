@@ -191,7 +191,7 @@ class DataLoaderTimeTagger:
                                      label=f"Channel {n_channel}")
                     plt.xlabel("Tau [s]")
                     plt.ylabel("g2")
-                    plt.ylim(0.8, 1.7)
+                    #plt.ylim(0.8, 1.7)
                     plt.title(f"Iteration {idx_iteration}")
                     plt.legend()
                     plt.show()
@@ -200,7 +200,7 @@ class DataLoaderTimeTagger:
 
     def _process_channel(self, i_channel, tt):
         countrate_out = utils.timetagger.countrate(tt[i_channel], self.T0)
-        g2_norm_out, tau_out = utils.timetagger.async_corr(np.array(tt[i_channel]), **self.correlator_args)
+        g2_norm_out, tau_out = utils.timetagger.async_corr_c(np.array(tt[i_channel]), **self.correlator_args)
         return i_channel, g2_norm_out, tau_out, countrate_out
 
 
@@ -292,21 +292,20 @@ def weigh_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    import cProfile, pstats
-
+    import time
     file = "../examples/data/TERm1010.ttbin"
     m = 2
     (p, s) = utils.timetagger.get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
     loader = DataLoaderTimeTagger(
         file,
         integration_time=30e-3,
-        channels=[2, 3, 4],
-        n_events=int(1e5),
+        channels=[1, 2, 3, 4],
+        n_events=int(1e6),
         p=p,
         m=m,
         s=s,
         tau_start=1e-7
     )
-    cProfile.run("loader.load_data()", "profile_results")
-    p = pstats.Stats("profile_results")
-    p.sort_stats("cumulative").print_stats(10)
+    start_time = time.time()
+    loader.load_data()
+    print(f"Data loaded in {time.time() - start_time:.2f} seconds.")

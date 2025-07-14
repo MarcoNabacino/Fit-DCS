@@ -1,4 +1,61 @@
 import numpy as np
+import os
+import ctypes
+from ctypes import POINTER, c_int64, c_double
+
+_lib_path = os.path.abspath("../cmake-build-debug/libasync_corr.dll")
+_async_corr_lib = ctypes.CDLL(_lib_path)
+
+_async_corr_lib.async_corr.argtypes = [
+    POINTER(c_int64), # t
+    c_int64,          # n_tags
+    c_int64,          # p
+    c_int64,          # m
+    c_int64,          # s
+    c_double,         # tau_start
+    c_double,         # t0
+    POINTER(c_double), # g2_out
+    POINTER(c_double), # tau_out
+]
+_async_corr_lib.async_corr.restype = None
+
+
+def async_corr_c(t: np.ndarray, p: int, m: int, s: int, tau_start: float = 20e-9, t0: float = 1e-12) \
+    -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculates the autocorrelation function using the asynchronous algorithm described in [1] (C implementation).
+
+    [1] Wahl, M. et al. (2003), "Fast calculation of fluorescence correlation data with asynchronous time-correlated
+    single photon counting".
+
+    :param t: Vector of photon time tags (unit specified by t0).
+    :param p: Number of time bins in each linear correlator.
+    :param m: Binning ratio. Must divide p.
+    :param s: Number of linear correlators.
+    :param tau_start: First value of the lag time [s] for which to calculate the autocorrelation. Default is 20 ns.
+    :param t0: Time resolution of the time tagger [s]. Default is 1 ps.
+    :return: A tuple containing the normalized autocorrelation function g2_norm and the corresponding lag times tau.
+    """
+    t = np.require(t, dtype=np.int64, requirements='C')
+    n_tags = t.shape[0]
+    n_bins = (p - (p // m)) * s
+
+    g2_out = np.zeros(n_bins, dtype=np.float64)
+    tau_out = np.zeros(n_bins, dtype=np.float64)
+
+    _async_corr_lib.async_corr(
+        t.ctypes.data_as(POINTER(c_int64)),
+        c_int64(n_tags),
+        c_int64(p),
+        c_int64(m),
+        c_int64(s),
+        c_double(tau_start),
+        c_double(t0),
+        g2_out.ctypes.data_as(POINTER(c_double)),
+        tau_out.ctypes.data_as(POINTER(c_double))
+    )
+
+    return g2_out, tau_out
 
 
 def get_correlator_architecture(alpha: int, m: int, tau_max: float, t0: float) -> tuple[int, int]:
@@ -90,7 +147,6 @@ def async_corr(t: np.ndarray, p: int, m: int, s: int, tau_start: float = 20e-9, 
 
             # Update autocorrelation
             autocorr[tau_index] += np.sum(weights[valid] * weights[matches[valid]])
-            #autocorr[tau_index] /= delta
             # Store lag time
             autotime[tau_index] = shift
             # Store bin width
@@ -125,10 +181,11 @@ def unique_with_inverse(sorted_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]
 
 if __name__ == "__main__":
     import TimeTagger
-    import cProfile, pstats
+    import time
+    import matplotlib.pyplot as plt
 
-    reader = TimeTagger.FileReader("../data/TERm1010.ttbin")
-    buffer = reader.getData(1.106e5)
+    reader = TimeTagger.FileReader("../examples/data/TERm1010.ttbin")
+    buffer = reader.getData(1e6)
     tags = buffer.getTimestamps()
     channels = buffer.getChannels()
 
@@ -139,6 +196,13 @@ if __name__ == "__main__":
 
     p, s = get_correlator_architecture(alpha=7, m=2, tau_max=1e-2, t0=1e-12)
     tau_start = 1e-7
-    cProfile.run("g2_norm, tau = async_corr(tt, p, m=2, s=s, tau_start=tau_start)", "profile_results")
-    p_res = pstats.Stats("profile_results")
-    p_res.sort_stats("cumulative").print_stats(10)
+    start_time = time.time()
+    g2_norm, tau = async_corr_c(tt, p, m=2, s=s, tau_start=tau_start)
+    print(f"Async correlation took {time.time() - start_time:.3f} seconds")
+
+    plt.semilogx(tau, g2_norm)
+    plt.xlabel("Lag time (s)")
+    plt.ylabel("Normalized autocorrelation g2")
+    plt.title("Asynchronous Correlation Function")
+    plt.grid()
+    plt.show()

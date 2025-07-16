@@ -2,106 +2,132 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int64_t unique_with_inverse(
-    const int64_t* sorted_arr,
-    int64_t* unique_vals,
-    int64_t* inverse_indices,
-    const size_t n
-) {
-    if (n == 0) return 0;
 
-    int64_t unique_count = 0;
-    unique_vals[0] = sorted_arr[0];
-    inverse_indices[0] = 0;
+/*
+ * This function takes a sorted array of time tags and returns the unique values, along with their inverse indices.
+ * For example, if the input is [1, 1, 2, 3, 3], the output will be:
+ * unique_vals = [1, 2, 3], inverse_indices = [0, 0, 1, 2, 2].
+ * The function returns the number of unique values found.
+*/
+static int64_t unique_with_inverse(
+    const int64_t* sorted_arr,  // Sorted (in ascending order) array of time tags
+    int64_t* unique_vals,       // Output array for unique values
+    int64_t* inverse_indices,   // Output array for inverse indices
+    const size_t n              // Number of elements in the sorted array
+) {
+    if (n == 0) return 0; // If the input array is empty, return 0
+
+    unique_vals[0] = sorted_arr[0]; // The first element is always unique
+    inverse_indices[0] = 0;         // The first element's inverse index is 0
+
+    int64_t unique_count = 1; // Counter for unique values
 
     for (size_t i = 1; i < n; i++) {
         if (sorted_arr[i] != sorted_arr[i - 1]) {
-            unique_count++;
-            unique_vals[unique_count] = sorted_arr[i];
+            // Found a new unique value
+            unique_vals[unique_count++] = sorted_arr[i];    // Store the unique value and increment the count
         }
-        inverse_indices[i] = unique_count;
+        inverse_indices[i] = unique_count - 1; // Store the inverse index
     }
 
-    return unique_count + 1;
+    return unique_count;
 }
 
 
+/*
+ * This function counts the occurrences of each unique value in the input array and sums their weights.
+ * It uses the inverse indices to map each input value to its corresponding unique index.
+ * The output is an array where each index corresponds to a unique value and contains the sum of weights for that value.
+ */
 static void bincount_weighted(
-    const int64_t* inverse_indices,
-    const int64_t* weights_in,
-    const int n_input,
-    int64_t* weights_out,
-    const int n_unique
+    const int64_t* inverse_indices, // Array of inverse indices mapping input values to unique indices
+    const int64_t* weights_in,      // Array of weights corresponding to the input values
+    const int n_input,              // Number of elements in the input arrays
+    int64_t* weights_out,           // Output array for summed weights, must be preallocated with size n_unique
+    const int n_unique              // Number of unique values, size of weights_out
 ) {
-    memset(weights_out, 0, n_unique * sizeof(int64_t));
+    memset(weights_out, 0, n_unique * sizeof(int64_t)); // Initialize output weights to zero
     for (int i = 0; i < n_input; i++) {
+        // For each input value, find its unique index and add the corresponding weight.
         const int64_t idx = inverse_indices[i];
         weights_out[idx] += weights_in[i];
     }
 }
 
 
+/*
+ * Calculates the autocorrelation function using the asynchronous algorithm described in [1].
+ *
+ * [1] Wahl, M. et al. (2003), "Fast calculation of fluorescence correlation data with asynchronous time-correlated
+ * single photon counting".
+ */
 void async_corr(
-    const int64_t* t_raw,
-    int n_tags,
-    const int p, const int m, const int s,
-    const double tau_start,
-    const double t0,
-    double* g2_out,
-    double* tau_out
+    const int64_t* t_raw,   // Array of time tags (unit specified by t0)
+    int n_tags,             // Number of time tags
+    const int p,            // Number of bins in each linear correlator
+    const int m,            // Binning ratio. Must divide p.
+    const int s,            // Number of stages (linear correlators)
+    const double tau_start, // Start time for the correlation (unit specified by t0)
+    const double t0,        // Time unit, in seconds. For Swabian time taggers this should be 1e-12, i.e., 1 ps.
+    double* g2_out,         // Output array for the g2 correlation values
+    double* tau_out         // Output array for the time lags corresponding to g2_out
 ) {
-    if (p % m != 0) return;
+    if (p % m != 0) return;     // Ensure that p is divisible by m
 
-    const int n_overlapped_bins = p / m;
-    const int n_bins = (p - n_overlapped_bins) * s;
+    const int n_overlapped_bins = p / m; // Number of bins of each stage that overlap with the next stage
+    const int n_bins = (p - n_overlapped_bins) * s; // Total number of bins in the output
 
-    int64_t* t = malloc(n_tags * sizeof(int64_t));
-    int64_t* weights = malloc(n_tags * sizeof(int64_t));
+    int64_t* t = malloc(n_tags * sizeof(int64_t)); // Array of time tags, copied from t_raw
+    int64_t* weights = malloc(n_tags * sizeof(int64_t)); // Array of weights, initialized to 1 for each tag
     for (int i = 0; i < n_tags; i++) {
         t[i] = t_raw[i];
         weights[i] = 1;
     }
-    const int64_t dt = t[n_tags - 1] - t[0];
-    const int64_t shift_start = (int64_t)(tau_start / t0);
+    const int64_t dt = t[n_tags - 1] - t[0]; // Measurement duration
+    const int64_t shift_start = (int64_t)(tau_start / t0); // Start time for the correlation in time tagger units
 
-    const double mean_rate = (double)n_tags / (double)dt;
+    const double mean_rate = (double)n_tags / (double)dt; // Mean countrate of the measurement, needed for normalization
 
-    int64_t* autocorr = calloc(n_bins, sizeof(int64_t));
-    int64_t* autotime = calloc(n_bins, sizeof(int64_t));
-    int64_t* bin_width = malloc(n_bins * sizeof(int64_t));
+    // Initialize output arrays
+    int64_t* autocorr = calloc(n_bins, sizeof(int64_t)); // Unnormalized autocorrelation
+    int64_t* autotime = malloc(n_bins * sizeof(int64_t)); // Autocorrelation time lags in time tagger units
+    int64_t* bin_width = malloc(n_bins * sizeof(int64_t)); // Width of each bin in time tagger units
 
-    int64_t delta = 1;
-    int64_t shift = 0;
-    int tau_index = 0;
+    int64_t delta = 1; // Initial bin width in time tagger units
+    int64_t shift = 0; // Initial shift in time tagger units
+    int tau_index = 0; // Index for the output arrays
 
     for (int stage = 0; stage < s; stage++) {
-        // Handle duplicates
-        int64_t* t_unique = malloc(n_tags * sizeof(int64_t));
-        int64_t* inverse = malloc(n_tags * sizeof(int64_t));
-        int64_t* weights_new = malloc(n_tags * sizeof(int64_t));
+        // Handle duplicates, by removing them and summing their weights
+        int64_t* t_unique = malloc(n_tags * sizeof(int64_t)); // Array for unique time tags
+        int64_t* inverse = malloc(n_tags * sizeof(int64_t)); // Array for inverse indices
+        int64_t* weights_new = malloc(n_tags * sizeof(int64_t)); // Array for updated weights
 
         const int n_unique = (int)unique_with_inverse(t, t_unique, inverse, n_tags);
         bincount_weighted(inverse, weights, n_tags, weights_new, n_unique);
+        free(inverse);
 
+        n_tags = n_unique; // Update the number of tags to the number of unique tags
+        // Update the time tags to the unique values and their corresponding weights
         free(t);
         free(weights);
         t = t_unique;
         weights = weights_new;
-        n_tags = n_unique;
-        free(inverse);
 
         for (int b = n_overlapped_bins; b < p; b++) {
-            shift += delta;
-            const int64_t lag = shift / delta;
+            shift += delta; // Increment the shift for the current bin
+            const int64_t lag = shift / delta; // Lag in number of bins
 
-            autotime[tau_index] = shift;
-            bin_width[tau_index] = delta;
+            autotime[tau_index] = shift; // Store the current shift in autotime
+            bin_width[tau_index] = delta; // Store the width of the current bin
 
             if (shift < shift_start) {
+                // If the shift is less than the start time, skip this bin
                 tau_index++;
                 continue;
             }
 
+            // Calculate the autocorrelation for the current bin
             int i = 0, j = 0;
             while (i < n_tags && j < n_tags) {
                 const int64_t a1 = t[i];
@@ -117,15 +143,17 @@ void async_corr(
                 }
             }
 
-            tau_index++;
+            tau_index++; // Move to the next index in the output arrays
         }
 
-        delta *= m;
+        delta *= m; // Increase the bin width for the next stage
+        // Coarsen the time tags by a factor of m for the next stage
         for (int i = 0; i < n_tags; i++) {
             t[i] /= m;
         }
     }
 
+    // Normalize the autocorrelation values and prepare the output
     const double norm_factor = 1 / (mean_rate * mean_rate);
     for (int i = 0; i < tau_index; i++) {
         if (dt - autotime[i] > 0) {
@@ -136,6 +164,7 @@ void async_corr(
         tau_out[i] = (double)autotime[i] * t0;
     }
 
+    // Free allocated memory
     free(t);
     free(weights);
     free(autocorr);

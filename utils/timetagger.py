@@ -1,10 +1,10 @@
 import numpy as np
-import os
+from core.libloader import get_lib_path
 import ctypes
 from ctypes import POINTER, c_int64, c_double
 
-_lib_path = os.path.abspath("../cmake-build-debug/libasync_corr.dll")
-_async_corr_lib = ctypes.CDLL(_lib_path)
+
+_async_corr_lib = ctypes.CDLL(get_lib_path("libasync_corr"))  # Load the C library for async correlation
 
 _async_corr_lib.async_corr.argtypes = [
     POINTER(c_int64), # t

@@ -15,19 +15,19 @@ static int64_t unique_with_inverse(
     int64_t* inverse_indices,   // Output array for inverse indices
     const size_t n              // Number of elements in the sorted array
 ) {
-    if (n == 0) return 0; // If the input array is empty, return 0
+    if (n == 0) return 0;
 
     unique_vals[0] = sorted_arr[0]; // The first element is always unique
-    inverse_indices[0] = 0;         // The first element's inverse index is 0
+    inverse_indices[0] = 0;
 
-    int64_t unique_count = 1; // Counter for unique values
+    int64_t unique_count = 1;
 
     for (size_t i = 1; i < n; i++) {
         if (sorted_arr[i] != sorted_arr[i - 1]) {
             // Found a new unique value
-            unique_vals[unique_count++] = sorted_arr[i];    // Store the unique value and increment the count
+            unique_vals[unique_count++] = sorted_arr[i];
         }
-        inverse_indices[i] = unique_count - 1; // Store the inverse index
+        inverse_indices[i] = unique_count - 1;
     }
 
     return unique_count;
@@ -77,8 +77,8 @@ void async_corr(
     const int n_overlapped_bins = p / m; // Number of bins of each stage that overlap with the next stage
     const int n_bins = (p - n_overlapped_bins) * s; // Total number of bins in the output
 
-    int64_t* t = malloc(n_tags * sizeof(int64_t)); // Array of time tags, copied from t_raw
-    int64_t* weights = malloc(n_tags * sizeof(int64_t)); // Array of weights, initialized to 1 for each tag
+    int64_t* t = malloc(n_tags * sizeof(int64_t));
+    int64_t* weights = malloc(n_tags * sizeof(int64_t));
     for (int i = 0; i < n_tags; i++) {
         t[i] = t_raw[i];
         weights[i] = 1;
@@ -93,9 +93,9 @@ void async_corr(
     int64_t* autotime = malloc(n_bins * sizeof(int64_t)); // Autocorrelation time lags in time tagger units
     int64_t* bin_width = malloc(n_bins * sizeof(int64_t)); // Width of each bin in time tagger units
 
-    int64_t delta = 1; // Initial bin width in time tagger units
-    int64_t shift = 0; // Initial shift in time tagger units
-    int tau_index = 0; // Index for the output arrays
+    int64_t delta = 1; // Bin width in time tagger units
+    int64_t shift = 0; // Lag in time tagger units
+    int tau_index = 0;
 
     for (int stage = 0; stage < s; stage++) {
         // Handle duplicates, by removing them and summing their weights
@@ -107,11 +107,11 @@ void async_corr(
         bincount_weighted(inverse, weights, n_tags, weights_new, n_unique);
         free(inverse);
 
-        n_tags = n_unique; // Update the number of tags to the number of unique tags
+        n_tags = n_unique;
         // Update the time tags to the unique values and their corresponding weights
         free(t);
-        free(weights);
         t = t_unique;
+        free(weights);
         weights = weights_new;
 
         for (int b = n_overlapped_bins; b < p; b++) {
@@ -143,7 +143,7 @@ void async_corr(
                 }
             }
 
-            tau_index++; // Move to the next index in the output arrays
+            tau_index++;
         }
 
         delta *= m; // Increase the bin width for the next stage

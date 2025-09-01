@@ -115,9 +115,9 @@ class BetaCalculator:
                 # Check that beta_fixed is a float
                 if isinstance(kwargs["beta_fixed"], (float, int)):
                     self.beta_fixed = kwargs["beta_fixed"]
-                    # Warn the user if beta_fixed is outside the range [0, 0.5]
-                    if self.beta_fixed < 0 or self.beta_fixed > 0.5:
-                        print("Warning: beta_fixed should be in the range [0, 0.5]")
+                    # Warn the user if beta_fixed is outside the range [0, 1]
+                    if self.beta_fixed < 0 or self.beta_fixed > 1:
+                        print("Warning: beta_fixed should be in the range [0, 1]")
                 else:
                     raise ValueError("beta_fixed should be a float")
             else:
@@ -152,9 +152,9 @@ class BetaCalculator:
                 # Check that beta0 is a float
                 if isinstance(kwargs["beta0"], (float, int)):
                     self.beta0 = kwargs["beta0"]
-                    # Warn the user if beta0 is outside the range [0, 0.5]
-                    if self.beta0 < 0 or self.beta0 > 0.5:
-                        print("Warning: beta0 should be in the range [0, 0.5]")
+                    # Warn the user if beta0 is outside the range [0, 1]
+                    if self.beta0 < 0 or self.beta0 > 1:
+                        print("Warning: beta0 should be in the range [0, 1]")
                 else:
                     raise ValueError("beta0 should be a float")
             else:

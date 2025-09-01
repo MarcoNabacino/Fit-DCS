@@ -290,13 +290,7 @@ class FitHomogeneous:
             self._calc_beta()
 
         for i in range(len(self)):
-            if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
-                # Fit the MSD params and store the results in fitted_params
-                curr_params, self.chi2[i], self.r2[i] = self._fit_msd_params(i)
-            elif self.beta_calculator.mode == "fit":
-                # Fit both the MSD params and beta and store the results in fitted_params and beta
-                curr_params, self.beta[i], self.chi2[i], self.r2[i] = self._fit_beta_and_msd_params(i)
-
+            curr_params, self.beta[i], self.chi2[i], self.r2[i] = self._process_iteration(i)
             for param in curr_params:
                 self.fitted_params[param][i] = curr_params[param]
 
@@ -351,12 +345,13 @@ class FitHomogeneous:
             tau_crop = np.broadcast_to(tau_crop, g2_norm_crop.shape)
             self.beta = np.mean((self.g2_norm[idx_first:idx_last, :] - 1) * (1 + tau_crop / tau_c), axis=0)
 
-    def _fit_msd_params(self, i: int) -> tuple[Dict, float, float]:
+    def _process_iteration(self, i: int) -> tuple[Dict, float, float, float]:
         """
         Fits only the MSD params of the model (i.e., no beta) to a single iteration.
+        Processes a single iteration (i.e., a single g2_norm), returning the fitted MSD parameters, beta, chi2 and r2.
 
         :param i: Index of the iteration to fit.
-        :return: A 3-tuple containing a Dict with the fitted parameters, the chi2 value, and the r2 value
+        :return: A 4-tuple containing: (a Dict with the fitted parameters, beta, chi2, r2).
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
         idx_first, idx_last = self._crop_to_fit_interval(i)
@@ -372,40 +367,65 @@ class FitHomogeneous:
             """
             Objective function for the fit.
             :param params: A vector of the parameters of the model to fit. The order of the parameters should match
-                the order of the params attribute of the msd_model.
+                the order of the params attribute of the msd_model, followed by the beta parameter.
             :return: The sum of the squared differences between the model and the data.
             """
-            params *= scale_array  # Scale the parameters back to their original values
-            msd = self.msd_model.msd_fn(tau_fit, *params)
+            if self.beta_calculator.mode == "fit":
+                msd_params = params[:-1]
+                beta = params[-1]
+            else:
+                msd_params = params
+                beta = self.beta[i]
+            msd_params *= scale_array  # Scale the parameters back to their original values
+            msd = self.msd_model.msd_fn(tau_fit, *msd_params)
             # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
             # We need to select the i-th element of each argument vector for the current iteration.
             g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
             g1_norm = self.g1_norm_fn(msd, **g1_args)
-            g2_norm = 1 + self.beta[i] * g1_norm ** 2
+            g2_norm = 1 + beta * g1_norm ** 2
             return np.sum((g2_norm - g2_norm_fit) ** 2)
 
+        scaled_msd_params = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
+        if self.beta_calculator.mode == "fit":
+            scaled_x0 = np.concatenate((scaled_msd_params, [self.beta_calculator.beta_init]))
+        else:
+            scaled_x0 = scaled_msd_params
+        msd_bounds = list(self.msd_model.param_bounds.values())
+        scaled_msd_bounds = [
+            (lo / s if lo is not None else None,
+             hi / s if hi is not None else None)
+            for (lo, hi), s in zip(msd_bounds, scale_array)
+        ]
+        if self.beta_calculator.mode == "fit":
+            scaled_beta_bounds = [self.beta_calculator.beta_bounds]
+            scaled_bounds = scaled_msd_bounds + scaled_beta_bounds
+        else:
+            scaled_bounds = scaled_msd_bounds
+
         # Perform the fit
-        scaled_x0 = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
-        bounds = list(self.msd_model.param_bounds.values())
-        # Scale the bounds, but set to None if the original bound is None
-        scaled_bounds = [(None if bound[0] is None else bound[0] / scale_array[i],
-                          None if bound[1] is None else bound[1] / scale_array[i]) for i, bound in enumerate(bounds)]
         res = opt.minimize(
             fun=objective,
             x0=scaled_x0,
             bounds=scaled_bounds
         )
 
-        if not res.success:
-            fitted_params = dict(zip(self.msd_model.params, np.full(len(res.x), np.nan)))
-            chi2 = np.nan
-            r2 = np.nan
-        else:
-            fitted_params = dict(zip(self.msd_model.params, res.x * scale_array))
+        if res.success:
+            if self.beta_calculator.mode == "fit":
+                fitted_params = res.x[:-1] * scale_array
+                beta = res.x[-1]
+            else:
+                fitted_params = res.x * scale_array
+                beta = self.beta[i]
+            fitted_params_dict = dict(zip(self.msd_model.params, fitted_params))
             chi2 = res.fun
             r2 = 1 - chi2 / np.sum((g2_norm_fit - np.mean(g2_norm_fit)) ** 2)
+        else:
+            fitted_params_dict = dict(zip(self.msd_model.params, np.full(len(res.x), np.nan)))
+            beta = np.nan if self.beta_calculator.mode == "fit" else self.beta[i]
+            chi2 = np.nan
+            r2 = np.nan
 
-        return fitted_params, chi2, r2
+        return fitted_params_dict, beta, chi2, r2
 
     def _crop_to_fit_interval(self, i: int) -> tuple:
         """
@@ -438,71 +458,6 @@ class FitHomogeneous:
             idx_last = len(self.tau)
 
         return idx_first, idx_last
-
-    def _fit_beta_and_msd_params(self, i: int) -> tuple[Dict, float, float, float]:
-        """
-        Fits both the beta and MSD params of the model to a single iteration.
-
-        :param i: Index of the iteration to fit.
-        :return: A 4-tuple with a Dict with the fitted parameters, the fitted beta, the chi2 value, and the r2 value
-        """
-        # Crop the data based on tau_lims_fit and g2_lim_fit
-        idx_first, idx_last = self._crop_to_fit_interval(i)
-        tau_fit = self.tau[idx_first:idx_last]
-        g2_norm_fit = self.g2_norm[idx_first:idx_last, i]
-
-        # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
-        # optimization algorithm.
-        scale_array = np.fromiter(self.msd_model.params_scale.values(), dtype=float)
-
-        # Define the objective function for the fit
-        def objective(params: np.ndarray) -> float:
-            """
-            Objective function for the fit.
-            :param params: A vector of the parameters of the model to fit. The order of the parameters should match
-                the order of the params attribute of the msd_model, followed by the beta parameter.
-            :return: The sum of the squared differences between the model and the data.
-            """
-            # Split the parameters into MSD params and beta
-            msd_params = params[:-1]
-            beta = params[-1]
-            msd_params *= scale_array
-            msd = self.msd_model.msd_fn(tau_fit, *msd_params)
-            # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
-            # We need to select the i-th element of each argument vector for the current iteration.
-            g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
-            g1_norm = self.g1_norm_fn(msd, **g1_args)
-            g2_norm = 1 + beta * g1_norm ** 2
-            return np.sum((g2_norm - g2_norm_fit) ** 2)
-
-        # Perform the fit
-        scaled_x0 = np.concatenate((np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array,
-                                    [self.beta_calculator.beta_init]))
-        bounds_msd = list(self.msd_model.param_bounds.values())
-        bounds_beta = self.beta_calculator.beta_bounds
-        # Scale the bounds, but set to None if the original bound is None
-        scaled_bounds_msd = [(None if bound[0] is None else bound[0] / scale_array[i],
-                              None if bound[1] is None else bound[1] / scale_array[i]) for i, bound in enumerate(bounds_msd)]
-        scaled_bounds_beta = bounds_beta
-        scaled_bounds = scaled_bounds_msd + [scaled_bounds_beta]
-        res = opt.minimize(
-            fun=objective,
-            x0=scaled_x0,
-            bounds=scaled_bounds
-        )
-
-        if not res.success:
-            fitted_params = dict(zip(self.msd_model.params, np.full(len(res.x) - 1, np.nan)))
-            fitted_beta = np.nan
-            chi2 = np.nan
-            r2 = np.nan
-        else:
-            fitted_params = dict(zip(self.msd_model.params, res.x[:-1] * scale_array))
-            fitted_beta = res.x[-1]
-            chi2 = res.fun
-            r2 = 1 - chi2 / np.sum((g2_norm_fit - np.mean(g2_norm_fit)) ** 2)
-
-        return fitted_params, fitted_beta, chi2, r2
 
     def _plot_fit(self, i: int) -> plt.figure:
         """

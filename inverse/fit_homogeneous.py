@@ -268,7 +268,7 @@ class FitHomogeneous:
 
         # Initialize the beta, fitted_params, and chi2 attributes.
         self.beta = np.full(len(self), np.nan)
-        self.fitted_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
+        self.msd_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
         self.chi2 = np.full(len(self), np.nan)
         self.r2 = np.full(len(self), np.nan)
 
@@ -284,7 +284,8 @@ class FitHomogeneous:
 
         :param plot_interval: If not 0, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations. Default is 0 (no plots).
-        :return: A DataFrame with beta, the fitted parameters, the chi value, and R2 for each iteration.
+        :return: A DataFrame with the fitted MSD parameters (column names: 'db' and/or 'v_ms' ), 'beta', 'chi2',
+            and 'r2' for each iteration.
         """
         if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
             self._calc_beta()
@@ -292,14 +293,14 @@ class FitHomogeneous:
         for i in range(len(self)):
             curr_params, self.beta[i], self.chi2[i], self.r2[i] = self._process_iteration(i)
             for param in curr_params:
-                self.fitted_params[param][i] = curr_params[param]
+                self.msd_params[param][i] = curr_params[param]
 
             if plot_interval > 0 and i % plot_interval == 0:
                 self._plot_fit(i)
                 plt.show()
 
        # Create a DataFrame with the fitted parameters and beta
-        df = pd.DataFrame(self.fitted_params)
+        df = pd.DataFrame(self.msd_params)
         df["beta"] = self.beta
         df["chi2"] = self.chi2
         df["r2"] = self.r2
@@ -385,11 +386,11 @@ class FitHomogeneous:
             g2_norm = 1 + beta * g1_norm ** 2
             return np.sum((g2_norm - g2_norm_fit) ** 2)
 
-        scaled_msd_params = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
+        scaled_msd_params_init = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
         if self.beta_calculator.mode == "fit":
-            scaled_x0 = np.concatenate((scaled_msd_params, [self.beta_calculator.beta_init]))
+            scaled_x0 = np.concatenate((scaled_msd_params_init, [self.beta_calculator.beta_init]))
         else:
-            scaled_x0 = scaled_msd_params
+            scaled_x0 = scaled_msd_params_init
         msd_bounds = list(self.msd_model.param_bounds.values())
         scaled_msd_bounds = [
             (lo / s if lo is not None else None,
@@ -459,7 +460,7 @@ class FitHomogeneous:
 
         return idx_first, idx_last
 
-    def _plot_fit(self, i: int) -> plt.figure:
+    def _plot_fit(self, i: int) -> plt.Figure:
         """
         Plots the g2_norm curve and the fitted curve for a single iteration, also displaying the fitting interval
         :param i: The index of the iteration to plot
@@ -468,8 +469,8 @@ class FitHomogeneous:
         idx_first, idx_last = self._crop_to_fit_interval(i)
         tau_fit = self.tau[idx_first:idx_last]
         # Get the fitted params for iteration i
-        fitted_params = {param: self.fitted_params[param][i] for param in self.msd_model.params}
-        msd = self.msd_model.msd_fn(tau_fit, *fitted_params.values())
+        msd_params = {param: self.msd_params[param][i] for param in self.msd_model.params}
+        msd = self.msd_model.msd_fn(tau_fit, *msd_params.values())
         # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
         # We need to select the i-th element of each argument vector for the current iteration.
         g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
@@ -479,7 +480,7 @@ class FitHomogeneous:
         f = plt.figure()
         plt.semilogx(self.tau, self.g2_norm[:, i], marker='.', linestyle='none', label="Data")
         plt.semilogx(tau_fit, g2_norm, label="Fit")
-        text = f"β = {self.beta[i]:.2f}\n" + "\n".join([f"{k} = {v:.2e}" for k, v in fitted_params.items()])
+        text = f"β = {self.beta[i]:.2f}\n" + "\n".join([f"{k} = {v:.2e}" for k, v in msd_params.items()])
         plt.annotate(text, xy=(0.05, 0.20), xycoords="axes fraction", fontsize=10,
                      verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
 

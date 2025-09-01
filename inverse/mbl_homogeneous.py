@@ -126,7 +126,7 @@ class MBLHomogeneous:
         Uses the DCS Modified Beer-Lambert law to calculate the msd parameter (Brownian diffusion coefficient or mean
         square velocity, depending on the model) for each lag time and iteration.
 
-        :return: The calculated parameters for each lag time and iteration. A matrix the same size as g2_norm.
+        :return: The calculated parameters for each lag time and iteration. A matrix the same shape as g2_norm.
         """
         # Calculate variations in mua and musp from the baseline
         delta_mua = self.mua - self.d_factors_fn_args["mua0"]

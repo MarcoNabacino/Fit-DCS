@@ -1,0 +1,23 @@
+input:
+  files: # Replace with your actual file paths outputted fitdcs-corr
+    - "test_output/2024-05-07_Pulsatility_forearm_corr.npz"
+  channels_idx: [0, 1, 2, 3] # 0-based indices of channels to fit. If the correlation was done on channels [1, 2, 5], and you want to fit channels 1 and 5, use [0, 2]
+beta_calculation:
+  mode: "fixed"               # Options: "fixed", "raw", "fit"
+  beta_fixed: 0.5             # Used if mode is "fixed"
+  tau_lims: [1.0e-7, 2.0e-7]  # Used if mode is "raw"
+  beta_init: 0.5              # Used if mode is "fit"
+  beta_bounds: [0.2, 0.8]     # Used if mode is "fit"
+fitting:
+  db_init: 1.0e-8
+  db_bounds: [0.0, null]
+  tau_lims_fit: [3.0e-7, 8.0e-4]
+  g2_lim_fit: 1.13
+experimental:
+  mua: 0.1
+  musp: 10.0
+  rho: 2.5
+  n: 1.4
+  lambda0: 785.0
+output: # Replace with desired output folder
+  directory: "test_output"

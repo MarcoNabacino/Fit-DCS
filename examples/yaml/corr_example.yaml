@@ -1,0 +1,13 @@
+input:
+  files: # Replace with your actual file paths
+    - "examples/data/software_corr/2024-05-07_Pulsatility_forearm.ttbin"
+correlator:
+  architecture:
+    m: 2
+    alpha: 7
+    tau_max: 1.0e-2
+    tau_start: 1.0e-7
+  channels: [1, 2, 3, 4] # Time tagger channels, 1-indexed
+  integration_time: 30.0e-3
+output: # Replace with desired output folder
+  directory: "test_output"

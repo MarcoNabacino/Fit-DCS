@@ -356,8 +356,8 @@ class FitHomogeneous:
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
         idx_first, idx_last = self._crop_to_fit_interval(i)
-        tau_fit = self.tau[idx_first:idx_last]
-        g2_norm_fit = self.g2_norm[idx_first:idx_last, i]
+        tau_cropped = self.tau[idx_first:idx_last]
+        g2_norm_cropped = self.g2_norm[idx_first:idx_last, i]
 
         # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
         # optimization algorithm.
@@ -378,13 +378,13 @@ class FitHomogeneous:
                 msd_params = params
                 beta = self.beta[i]
             msd_params *= scale_array  # Scale the parameters back to their original values
-            msd = self.msd_model.msd_fn(tau_fit, *msd_params)
+            msd = self.msd_model.msd_fn(tau_cropped, *msd_params)
             # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
             # We need to select the i-th element of each argument vector for the current iteration.
             g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
             g1_norm = self.g1_norm_fn(msd, **g1_args)
             g2_norm = 1 + beta * g1_norm ** 2
-            return np.sum((g2_norm - g2_norm_fit) ** 2)
+            return np.sum((g2_norm - g2_norm_cropped) ** 2)
 
         scaled_msd_params_init = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
         if self.beta_calculator.mode == "fit":
@@ -412,21 +412,26 @@ class FitHomogeneous:
 
         if res.success:
             if self.beta_calculator.mode == "fit":
-                fitted_params = res.x[:-1] * scale_array
+                msd_params = res.x[:-1] * scale_array
                 beta = res.x[-1]
             else:
-                fitted_params = res.x * scale_array
+                msd_params = res.x * scale_array
                 beta = self.beta[i]
-            fitted_params_dict = dict(zip(self.msd_model.params, fitted_params))
-            chi2 = res.fun
-            r2 = 1 - chi2 / np.sum((g2_norm_fit - np.mean(g2_norm_fit)) ** 2)
+            msd_params_dict = dict(zip(self.msd_model.params, msd_params))
+
+            msd_cropped = self.msd_model.msd_fn(tau_cropped, *msd_params_dict.values())
+            g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
+            g2_norm_best_fit = 1 + beta * self.g1_norm_fn(msd_cropped, **g1_args) ** 2
+            chi2 = np.sum((g2_norm_cropped - g2_norm_best_fit) ** 2 / g2_norm_best_fit)
+
+            r2 = 1 - res.fun / np.sum((g2_norm_cropped - np.mean(g2_norm_cropped)) ** 2)
         else:
-            fitted_params_dict = dict(zip(self.msd_model.params, np.full(len(res.x), np.nan)))
+            msd_params_dict = dict(zip(self.msd_model.params, np.full(len(res.x), np.nan)))
             beta = np.nan if self.beta_calculator.mode == "fit" else self.beta[i]
             chi2 = np.nan
             r2 = np.nan
 
-        return fitted_params_dict, beta, chi2, r2
+        return msd_params_dict, beta, chi2, r2
 
     def _crop_to_fit_interval(self, i: int) -> tuple:
         """
@@ -468,19 +473,13 @@ class FitHomogeneous:
         """
         idx_first, idx_last = self._crop_to_fit_interval(i)
         tau_fit = self.tau[idx_first:idx_last]
-        # Get the fitted params for iteration i
-        msd_params = {param: self.msd_params[param][i] for param in self.msd_model.params}
-        msd = self.msd_model.msd_fn(tau_fit, *msd_params.values())
-        # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
-        # We need to select the i-th element of each argument vector for the current iteration.
-        g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
-        g1_norm = self.g1_norm_fn(msd, **g1_args)
-        g2_norm = 1 + self.beta[i] * g1_norm ** 2
+        g2_norm_fit, msd_params, beta = self._get_best_fit(i)
+        g2_norm_fit = g2_norm_fit[idx_first:idx_last]
 
         f = plt.figure()
         plt.semilogx(self.tau, self.g2_norm[:, i], marker='.', linestyle='none', label="Data")
-        plt.semilogx(tau_fit, g2_norm, label="Fit")
-        text = f"β = {self.beta[i]:.2f}\n" + "\n".join([f"{k} = {v:.2e}" for k, v in msd_params.items()])
+        plt.semilogx(tau_fit, g2_norm_fit, label="Fit")
+        text = f"β = {beta:.2f}\n" + "\n".join([f"{k} = {v:.2e}" for k, v in msd_params.items()])
         plt.annotate(text, xy=(0.05, 0.20), xycoords="axes fraction", fontsize=10,
                      verticalalignment="top", bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
 
@@ -490,3 +489,24 @@ class FitHomogeneous:
         plt.legend()
 
         return f
+
+    def _get_best_fit(self, i: int) -> tuple[np.ndarray, Dict, float]:
+        """
+        Calculates the best fit g2_norm curve for a single iteration using the fitted parameters.
+
+        :param i: The index of the iteration to calculate the best fit g2_norm curve.
+        :return: A tuple containing: (the best fit g2_norm curve, a Dict with the fitted parameters, beta).
+        """
+        beta = self.beta[i]
+
+        msd_params = {param: self.msd_params[param][i] for param in self.msd_model.params}
+        msd = self.msd_model.msd_fn(self.tau, *msd_params.values())
+
+        # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
+        # We need to select the i-th element of each argument vector for the current iteration.
+        g1_args = {key: value[i] if isinstance(value, np.ndarray) else value for key, value in self.g1_args.items()}
+
+        g1_norm = self.g1_norm_fn(msd, **g1_args)
+        g2_norm = 1 + beta * g1_norm ** 2
+
+        return g2_norm, msd_params, beta

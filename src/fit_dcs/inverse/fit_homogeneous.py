@@ -447,7 +447,7 @@ class FitHomogeneous:
             idx_last_g2 = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
             idx_last = min(idx_last_tau, idx_last_g2)
             if idx_first >= idx_last:
-                warnings.warn(f"Last index ({idx_last}) is less than or equal to first index ({idx_first})."
+                warnings.warn(f"Last index ({idx_last}) is less than or equal to first index ({idx_first}). "
                               f"Falling back to using tau_lims_fit ({idx_first}, {idx_last_tau}) only.")
                 idx_last = idx_last_tau
         elif self.tau_lims_fit is not None:
@@ -458,7 +458,7 @@ class FitHomogeneous:
             indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
             idx_last = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
             if idx_first >= idx_last:
-                warnings.warn(f"Cannot find any g2_norm values greater than g2_lim_fit ({self.g2_lim_fit})."
+                warnings.warn(f"Cannot find any g2_norm values greater than g2_lim_fit ({self.g2_lim_fit}). "
                               f"Falling back to using the entire tau range")
                 idx_last = len(self.tau)
         else:

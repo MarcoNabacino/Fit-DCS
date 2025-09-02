@@ -14,25 +14,23 @@ A Python package for analysis of Diffuse Correlation Spectroscopy (DCS) data.
 
 ## Installation
 
-Clone the repository:
+1. Clone the repository and navigate into the directory:
+    ```bash
+    git clone https://github.com/marconabacino/Fit-DCS.git
+    cd Fit-DCS
+    ```
+   
+2. (Optional but recommended) Activate the virtual environment where you want to install the package,
+creating it if necessary. For example, if you are using anaconda/miniconda:
+    ```bash
+    conda create -n fitdcs # Skip if the environment already exists
+    conda activate fitdcs
+    ```
 
-```bash
-git clone https://github.com/marconabacino/Fit-DCS.git
-cd Fit-DCS
-```
-(Optional but recommended) Create and activate a virtual environment:
-
-```bash
-python -m venv venv
-venv\Scripts\activate  # On Windows
-source venv/bin/activate  # On macOS/Linux
-```
-
-Install the package using pip:
-
-```bash
-pip install .
-```
+3. Install the package using pip:
+    ```bash
+    pip install .
+    ```
 
 ### Optional dependencies
 
@@ -46,7 +44,7 @@ normally.
 
 ### Optional C software correlator
 
-The performance-critical software correlator is implemented in C for speed.
+The software correlator is implemented in C for speed.
 For Windows users, a precompiled version of the C library is already included in the repository and gets automatically
 used by the package. Of course, you can also compile it yourself if you want.
 
@@ -113,6 +111,6 @@ fitdcs-fit --config path/to/config.yaml
 
 #### Configuration files
 All scripts require a YAML configuration file specifying parameters such as input files, analysis settings, and output
-directories. Example configuration files are provided in the [`examples/yaml/`](./examples/yaml) folder for reference,
-but you should create your own based on your specific data and analysis needs.
-
+directories. Example configuration files showing the available options are provided in the
+[`examples/yaml/`](./examples/yaml) folder for reference, but you should create your own based on your
+specific data and analysis needs.

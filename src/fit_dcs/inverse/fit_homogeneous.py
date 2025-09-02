@@ -4,6 +4,7 @@ import fit_dcs.forward.common as common
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 import pandas as pd
+import warnings
 
 
 class MSDModelFit:
@@ -443,22 +444,23 @@ class FitHomogeneous:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
             indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
-            idx_last_g2 = indices[-1] # Last index where g2_norm > g2_lim_fit
+            idx_last_g2 = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
             idx_last = min(idx_last_tau, idx_last_g2)
             if idx_first >= idx_last:
-                raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit or the last "
-                                 "g2_norm value smaller than g2_lim_fit")
+                warnings.warn(f"Last index ({idx_last}) is less than or equal to first index ({idx_first})."
+                              f"Falling back to using tau_lims_fit ({idx_first}, {idx_last_tau}) only.")
+                idx_last = idx_last_tau
         elif self.tau_lims_fit is not None:
             idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
             idx_last = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
-            if idx_first >= idx_last:
-                raise ValueError("The upper limit of tau_lims_fit should be greater than the lower limit")
         elif self.g2_lim_fit is not None:
             idx_first = 0
             indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
             idx_last = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
             if idx_first >= idx_last:
-                raise ValueError("The last g2_norm value smaller than g2_lim_fit should exist")
+                warnings.warn(f"Cannot find any g2_norm values greater than g2_lim_fit ({self.g2_lim_fit})."
+                              f"Falling back to using the entire tau range")
+                idx_last = len(self.tau)
         else:
             idx_first = 0
             idx_last = len(self.tau)

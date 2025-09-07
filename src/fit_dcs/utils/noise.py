@@ -179,31 +179,23 @@ class NoiseAdder:
         tau_fit = self.tau[self.tau < tau_lim]
         g2_fit = self.g2_norm[self.tau < tau_lim, i]
 
-        return fit_tau_c(self.beta, tau_fit, g2_fit)
+        def simple_exp(beta, tau, tau_c):
+            """
+            Simple exponential model for g2.
+            """
+            return 1 + beta * np.exp(-tau / tau_c)
 
+        def cost_fn(tau_c):
+            """
+            Cost function for the fit.
+            """
+            # To help the optimizer, the input tau_c is in hundreds of microseconds. Convert it to seconds.
+            g2_simple_exp = simple_exp(self.beta, tau_fit, tau_c * 1e-4)
+            return np.sum((g2_fit - g2_simple_exp) ** 2)
 
-def fit_tau_c(beta: float, tau_fit: np.ndarray, g2_fit: np.ndarray) -> float:
-    """
-    Fits the correlation time tau_c of a g2 curve to a simple exponential model g2(tau) = 1 + beta * exp(-tau/tau_c).
-    :param beta: Light coherence factor.
-    :param tau_fit: Vector of time delays for fitting. [s]
-    :param g2_fit: Vector of normalized second-order autocorrelation function values for fitting.
-    :return: The fitted correlation time tau_c [s].
-    """
-    # Define the model function for the fit
-    def simple_exp(beta, tau, tau_c):
-        return 1 + beta * np.exp(-tau / tau_c)
+        x0 = np.array(2)  # Initial guess for tau_c in hundreds of microseconds
+        bounds = [(0, None)]
+        res = opt.minimize(cost_fn, x0, bounds=bounds)
 
-    # Define the cost function for the fit
-    def cost(tau_c):
-        # To help the optimizer, the input tau_c is in hundreds of microseconds. Convert it to seconds.
-        g2_simple_exp = simple_exp(beta, tau_fit, tau_c * 1e-4)
-        return np.sum((g2_fit - g2_simple_exp) ** 2)
-
-    # Perform the fit
-    x0 = np.array(2) # Initial guess for tau_c in hundreds of microseconds
-    res = opt.minimize(cost, x0)
-
-    # Return the fitted tau_c
-    return res.x[0] * 1e-4 # Convert tau_c back to seconds
-
+        # Return the fitted tau_c
+        return res.x[0] * 1e-4  # Convert tau_c back to seconds

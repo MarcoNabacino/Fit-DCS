@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from fit_dcs.utils.timetagger import async_corr, async_corr_c, countrate
 from typing import Dict
@@ -137,12 +138,15 @@ class DataLoaderTimeTagger:
 
         return self._len
 
-    def load_data(self, plot_interval: int = 0):
+    def load_data(self, plot_interval: int = 0, max_workers: int = os.cpu_count()):
         """
         Read the .ttbin file, group photons based on the integration time, calculate the autocorrelation and countrate,
         and store the results in the class attributes.
 
         :param plot_interval: Interval at which to plot the g2 data. Default is 0, which means no plots.
+        :param max_workers: Maximum number of worker processes to use for parallel processing. If set to
+        a higher value than the number of channels used in the measurement, it will be reduced to that number.
+        Default is the number of CPU cores available, which is typically higher than the number of channels.
         """
         file_reader = TimeTagger.FileReader(self.data_file_paths)
 
@@ -153,7 +157,8 @@ class DataLoaderTimeTagger:
         max_time = tags[-1] # Maximum time tag that has been read
 
         idx_iteration = 0
-        with ProcessPoolExecutor() as executor:
+        max_workers = min(max_workers, len(self.channels))
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
             while len(tags) != 0:
                 # Update start time
                 start_time = tags[0]

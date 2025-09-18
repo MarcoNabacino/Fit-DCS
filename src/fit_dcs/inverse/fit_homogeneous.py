@@ -297,8 +297,8 @@ class FitHomogeneous:
                 self.msd_params[param][i] = curr_params[param]
 
             if plot_interval > 0 and i % plot_interval == 0:
-                self._plot_fit(i)
-                plt.show()
+                f = self._plot_fit(i)
+                f.show()
 
        # Create a DataFrame with the fitted parameters and beta
         df = pd.DataFrame(self.msd_params)

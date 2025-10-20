@@ -1,4 +1,4 @@
-from typing import Dict, Callable
+from typing import Dict, Callable, Literal
 import numpy as np
 import fit_dcs.forward.common as common
 import scipy.optimize as opt
@@ -21,11 +21,12 @@ class MSDModelFit:
         diffusion coefficient (db) and the mean square speed of the scatterers (v_ms).
     """
 
-    def __init__(self, model_name: str, param_init: Dict, param_bounds: Dict | None = None):
+    def __init__(self, model_name: Literal["brownian", "ballistic", "hybrid"], param_init: Dict,
+                 param_bounds: Dict | None = None):
         """
         Class constructor.
 
-        :param model_name: The name of the MSD model.
+        :param model_name: The name of the MSD model. Choose from "brownian", "ballistic", or "hybrid".
         :param param_init: Initial values of the parameters of the model. A dictionary with the parameter names as keys
             and the initial values as values.
         :param param_bounds: Bounds of the parameters of the model (optional). A dictionary with the parameter names as

@@ -6,6 +6,8 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$" />
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/c_lib">
+    <contentRoot DIR="$PROJECT_DIR$" />
+  </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="Fit-DCS" project-jdk-type="Python SDK" />
 </project>

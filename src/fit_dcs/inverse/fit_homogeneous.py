@@ -96,7 +96,7 @@ class BetaCalculator:
         parameters. The initial value of beta is defined by beta_init, and the bounds are defined by beta_bounds.
     """
 
-    def __init__(self, mode: str, **kwargs):
+    def __init__(self, mode: Literal["fixed", "raw", "raw_weighted", "fit"], **kwargs):
         """
         Class constructor.
 

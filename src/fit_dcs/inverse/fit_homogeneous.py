@@ -100,7 +100,7 @@ class BetaCalculator:
         """
         Class constructor.
 
-        :param mode: The mode of the beta calculation. Either "fixed", "raw", or "fit".
+        :param mode: The mode of the beta calculation. Either "fixed", "raw", "raw_weighted", or "fit".
         :param kwargs: Additional arguments depending on the mode. Specific arguments are:
             - If mode is "fixed", then beta_fixed should be a float.
             - If mode is "raw", then tau_lims should be an ordered pair of floats.

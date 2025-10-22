@@ -89,7 +89,7 @@ def g1(msd_up: np.ndarray, mua_up: float, musp_up: float,
         integrand = LowLevelCallable(BILAYER_LIB.integrand, params_ptr)
 
         for i in range(len(msd_up)):
-            # Put parameters in double array
+            # Update msd values in params and integrate
             params[0] = float(msd_up[i])
             params[3] = float(msd_dn[i])
             result[i], _ = quad(integrand, 0, q_max)
@@ -128,28 +128,31 @@ def g1_norm(msd_up: np.ndarray, mua_up: float, musp_up: float,
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    from fit_dcs.forward.common import msd_brownian
 
     db_up = 1e-8
     mua_up = 0.04
     musp_up = 10
     d = 1.0
-    db_dn = 1e-10
+    db_dn = 6e-8
     mua_dn = 0.2
     musp_dn = 10
     n = 1.4
     lambda0 = 785
-    rho = 3
+    rho = 2.5
     beta = 0.5
-
     tau = np.logspace(-7, -2, 200)
-    msd_up = 6 * db_up * tau
-    msd_dn = 6 * db_dn * tau
-    q_max = 100
+    msd_up = msd_brownian(tau, db_up)
+    msd_dn = msd_brownian(tau, db_dn)
 
-    g2_norm = 1 + beta * g1_norm(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, rho, lambda0, q_max) ** 2
-    plt.semilogx(tau, g2_norm)
+    q_max_list = [20, 40, 60, 80, 100]
+
+    for q_max in q_max_list:
+        g2_norm = 1 + beta * g1_norm(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, rho, lambda0, q_max) ** 2
+        plt.semilogx(tau, g2_norm, label=q_max)
     plt.xlabel(r"$\tau$ (s)")
     plt.ylabel(r"$g_2$")
+    plt.legend(title=r"$q_{max}$ (1/cm)")
     plt.grid(True)
     plt.tight_layout()
     plt.show()

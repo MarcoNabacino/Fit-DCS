@@ -1,7 +1,11 @@
 import numpy as np
 import fit_dcs.forward.common as common
-from scipy.integrate import quad_vec
+from scipy import LowLevelCallable
+from scipy.integrate import quad, quad_vec
 from scipy.special import jv
+from fit_dcs.core.lib_loader import BILAYER_LIB, _HAS_BILAYER_LIB
+import ctypes
+from ctypes import c_double, c_void_p
 
 
 def g1_spatial_freq(msd_up: np.ndarray, mua_up: float, musp_up: float,
@@ -46,7 +50,7 @@ def g1_spatial_freq(msd_up: np.ndarray, mua_up: float, musp_up: float,
 
 def g1(msd_up: np.ndarray, mua_up: float, musp_up: float,
        msd_dn: np.ndarray, mua_dn: float, musp_dn: float,
-       n: float, d: float, rho: float, lambda0: float, b: float) -> np.ndarray:
+       n: float, d: float, rho: float, lambda0: float, q_max: float) -> np.ndarray:
     """
     Calculates the unnormalized G1 for a bilayer model. From [1].
 
@@ -64,19 +68,43 @@ def g1(msd_up: np.ndarray, mua_up: float, musp_up: float,
     :param d: Thickness of the upper layer. [cm]
     :param rho: Source-detector separation. [cm]
     :param lambda0: Wavelength of the light source. [nm]
+    :param q_max: Maximum spatial frequency for the integration. [1/cm]
     :return: The unnormalized first-order autocorrelation function G1. A vector the same length as tau.
     """
-    def integrand(q):
-        return (g1_spatial_freq(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, lambda0, q)
-                * q * jv(0, q * rho))
-    (result, _) = quad_vec(integrand, 0, b)
+    if _HAS_BILAYER_LIB:
+        result = np.zeros_like(msd_up)
+        params = (c_double * 10)(
+            0.0,  # Placeholder for msd_up
+            mua_up,
+            musp_up,
+            0.0,  # Placeholder for msd_dn
+            mua_dn,
+            musp_dn,
+            n,
+            d,
+            lambda0,
+            rho
+        )
+        params_ptr = ctypes.cast(params, c_void_p)
+        integrand = LowLevelCallable(BILAYER_LIB.integrand, params_ptr)
 
-    return result / (2 * np.pi)
+        for i in range(len(msd_up)):
+            # Put parameters in double array
+            params[0] = float(msd_up[i])
+            params[3] = float(msd_dn[i])
+            result[i], _ = quad(integrand, 0, q_max)
+    else:
+        def integrand(q):
+            return (g1_spatial_freq(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, lambda0, q)
+                    * q * jv(0, q * rho))
+        result, _ = quad_vec(integrand, 0, q_max)
+
+    return result
 
 
 def g1_norm(msd_up: np.ndarray, mua_up: float, musp_up: float,
             msd_dn: np.ndarray, mua_dn: float, musp_dn: float,
-            n: float, d: float, rho: float, lambda0: float, b: float) -> np.ndarray:
+            n: float, d: float, rho: float, lambda0: float, q_max: float) -> np.ndarray:
     """
     Calculates the normalized G1 for a bilayer model.
 
@@ -93,33 +121,35 @@ def g1_norm(msd_up: np.ndarray, mua_up: float, musp_up: float,
     :param lambda0: Wavelength of the light source. [nm]
     :return: The normalized first-order autocorrelation function G1. A vector the same length as tau.
     """
-    return g1(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, rho, lambda0, b) / g1(
-        0, mua_up, musp_up, 0, mua_dn, musp_dn, n, d, rho, lambda0, b)
+    zero_vec = np.zeros_like(msd_up)
+    norm = g1(zero_vec, mua_up, musp_up, zero_vec, mua_dn, musp_dn, n, d, rho, lambda0, q_max)
+    return g1(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, rho, lambda0, q_max) / norm
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    mua_up = 0.13
-    musp_up = 8.6
-    d = 1.0
     db_up = 1e-8
-    mua_dn = 0.18
-    musp_dn = 11.1
-    db_dn = 1e-9
+    mua_up = 0.04
+    musp_up = 10
+    d = 1.0
+    db_dn = 1e-10
+    mua_dn = 0.2
+    musp_dn = 10
     n = 1.4
     lambda0 = 785
     rho = 3
+    beta = 0.5
+
     tau = np.logspace(-7, -2, 200)
     msd_up = 6 * db_up * tau
     msd_dn = 6 * db_dn * tau
+    q_max = 100
 
-    for b in [60, 80, 100, 150]:
-        g1_norm_ = g1_norm(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, rho, lambda0, b)
-        plt.semilogx(tau, g1_norm_, label=b)
-
+    g2_norm = 1 + beta * g1_norm(msd_up, mua_up, musp_up, msd_dn, mua_dn, musp_dn, n, d, rho, lambda0, q_max) ** 2
+    plt.semilogx(tau, g2_norm)
     plt.xlabel(r"$\tau$ (s)")
-    plt.ylabel(r"$g_1$")
-    plt.legend(title="upper integration limit (1/cm)")
+    plt.ylabel(r"$g_2$")
+    plt.grid(True)
     plt.tight_layout()
     plt.show()

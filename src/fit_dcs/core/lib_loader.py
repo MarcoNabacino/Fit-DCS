@@ -2,7 +2,7 @@ import platform
 import warnings
 from pathlib import Path
 import ctypes
-from ctypes import POINTER, c_int64, c_double
+from ctypes import POINTER, c_int64, c_double, c_int, c_void_p
 
 
 def get_lib_path(lib_name: str) -> str:
@@ -28,7 +28,9 @@ def get_lib_path(lib_name: str) -> str:
 
     return str(lib_path)
 
-# Attempt to load the C library
+
+# Attempt to load the C libraries
+# Load libasync_corr
 try:
     lib_path = get_lib_path("libasync_corr")
     ASYNC_CORR_LIB = ctypes.CDLL(lib_path)
@@ -44,9 +46,25 @@ try:
         POINTER(c_double),  # tau_out
     ]
     ASYNC_CORR_LIB.async_corr.restype = None
-    _HAS_C_LIB = True
+    _HAS_CORR_LIB = True
 except FileNotFoundError:
     warnings.warn("Fast C implementation of async_corr not found. Using slower Python implementation."
                   "macOS/Linux users need to compile the C library manually. See the README for instructions.")
     ASYNC_CORR_LIB = None
-    _HAS_C_LIB = False
+    _HAS_CORR_LIB = False
+
+# Load libbilayer
+try:
+    lib_path = get_lib_path("libbilayer")
+    BILAYER_LIB = ctypes.CDLL(lib_path)
+    BILAYER_LIB.integrand.argtypes = [
+        c_int,
+        POINTER(c_double),
+        c_void_p
+    ]
+    BILAYER_LIB.integrand.restype = c_double
+    _HAS_BILAYER_LIB = True
+except FileNotFoundError:
+    warnings.warn("Fast C implementation of bilayer model not found. Using slower Python implementation.")
+    BILAYER_LIB = None
+    _HAS_BILAYER_LIB = False

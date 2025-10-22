@@ -26,3 +26,13 @@ add_custom_command(TARGET bilayer POST_BUILD
         $<TARGET_FILE:bilayer>
         ${LIB_OUTPUT_DIR}/$<TARGET_FILE_NAME:bilayer>
 )
+# Copy also the GSL shared libraries to the output directory
+file(GLOB GSL_DLLS "C:/msys64/mingw64/bin/libgsl*.dll" "C:/msys64/mingw64/bin/libgslcblas*.dll")
+foreach(dll ${GSL_DLLS})
+    get_filename_component(dll_name ${dll} NAME)
+    add_custom_command(TARGET bilayer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${dll}"
+        "${LIB_OUTPUT_DIR}/${dll_name}"
+    )
+endforeach()

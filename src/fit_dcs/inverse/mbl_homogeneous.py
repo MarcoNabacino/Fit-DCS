@@ -1,6 +1,6 @@
 import numpy as np
 import fit_dcs.forward.common as common
-from typing import Callable
+from typing import Callable, Literal
 
 
 class MSDModelMBL:
@@ -14,11 +14,11 @@ class MSDModelMBL:
         scatterers (v_ms).
     """
 
-    def __init__(self, name: str, param0: float):
+    def __init__(self, model_name: Literal["brownian", "ballistic"], param0: float):
         """
         Class constructor.
 
-        :param name: The name of the model to use for the mean-square displacement.
+        :param model_name: The name of the model to use for the mean-square displacement.
             Choose between "brownian" or "ballistic".
         :param param0: The baseline value of the parameter, typically estimated previously via a fit. If model is
             "brownian", this is the baseline diffusion coefficient db [cm^2/s]. If model is "ballistic", this is the
@@ -26,15 +26,15 @@ class MSDModelMBL:
         """
         # Check the model and fetch the appropriate function and derivative. Also check that the baseline parameters
         # are provided.
-        if name == "brownian":
+        if model_name == "brownian":
             self.msd_fn = common.msd_brownian
             self.d_msd_fn = common.d_msd_brownian
-        elif name == "ballistic":
+        elif model_name == "ballistic":
             self.msd_fn = common.msd_ballistic
             self.d_msd_fn = common.d_msd_ballistic
         else:
-            raise ValueError(f"Model {name} not recognized. Choose between 'brownian' or 'ballistic'.")
-        self.model = name
+            raise ValueError(f"Model {model_name} not recognized. Choose between 'brownian' or 'ballistic'.")
+        self.model = model_name
         self.param0 = param0
 
 
@@ -46,8 +46,6 @@ class MBLHomogeneous:
 
     def __init__(
             self,
-            tau: np.ndarray,
-            g2_norm: np.ndarray,
             g2_norm_0: np.ndarray,
             d_factors_fn: Callable,
             msd_model: MSDModelMBL,
@@ -76,80 +74,83 @@ class MBLHomogeneous:
         :param kwargs: Arguments to be passed to d_factors_fn, which gets called as d_factors_fn(msd0, **kwargs), where
             msd0 gets calculated using the baseline parameter provided in msd_model.
         """
-        # Check that the number of rows in g2_norm is the same as the length of tau
-        if g2_norm.shape[0] == len(tau):
-            self.tau = tau
-            self.g2_norm = g2_norm
-        else:
-            raise ValueError("The number of rows in g2_norm should be the same as the length of tau")
-
-        # Check that the length of g2_norm_0 is the same as the length of tau
-        if len(g2_norm_0) == len(tau):
-            self.g2_norm_0 = g2_norm_0
-        else:
-            raise ValueError("g2_norm_0 should be the same length as tau")
-
-        # Check that mua and musp are either floats or arrays of the same length as the number of columns in g2_norm
-        if isinstance(mua, (float, int)):
-            self.mua = np.full(len(self), mua)
-        elif isinstance(mua, np.ndarray):
-            if len(mua) == len(self):
-                self.mua = mua
-            else:
-                raise ValueError("mua should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
-        else:
-            raise ValueError("mua should be a float or an array")
-        if isinstance(musp, (float, int)):
-            self.musp = np.full(len(self), musp)
-        elif isinstance(musp, np.ndarray):
-            if len(musp) == len(self):
-                self.musp = musp
-            else:
-                raise ValueError("musp should be a float or an array of the same length as the number of columns in "
-                                 "g2_norm")
-        else:
-            raise ValueError("musp should be a float or an array")
-
+        self.g2_norm_0 = g2_norm_0
+        self.mua = mua
+        self.musp = musp
         self.d_factors_fn = d_factors_fn
         self.msd_model = msd_model
         self.d_factors_fn_args = kwargs
 
-    def __len__(self):
-        """
-        Returns the number of iterations.
-        """
-        return self.g2_norm.shape[1]
-
-    def fit(self) -> np.ndarray:
+    def fit(self, tau: np.ndarray, g2_norm: np.ndarray) -> np.ndarray:
         """
         Uses the DCS Modified Beer-Lambert law to calculate the msd parameter (Brownian diffusion coefficient or mean
         square velocity, depending on the model) for each lag time and iteration.
 
-        :return: The calculated parameters for each lag time and iteration. A matrix the same shape as g2_norm.
+        :param tau: Vector of time delays [s].
+        :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is iterations,
+            second dimension is time delays.
+        :return: The calculated parameter for each lag time and iteration. A matrix the same shape as g2_norm.
         """
         # Calculate variations in mua and musp from the baseline
         delta_mua = self.mua - self.d_factors_fn_args["mua0"]
         delta_musp = self.musp - self.d_factors_fn_args["musp0"]
 
         # Calculate the d factors for the baseline and broadcast them to the same shape as g2_norm
-        msd0 = self.msd_model.msd_fn(self.tau, self.msd_model.param0)
+        msd0 = self.msd_model.msd_fn(tau, self.msd_model.param0)
         (dr, da, ds) = self.d_factors_fn(msd0, **self.d_factors_fn_args)
         # Calculate the d factor with respect to the parameter of interest based on dr and the derivative of the MSD
-        dp = dr * self.msd_model.d_msd_fn(self.tau)
+        dp = dr * self.msd_model.d_msd_fn(tau)
         # Broadcast the d factors to the same shape as g2_norm
-        dp = np.expand_dims(dp, axis=1)
-        dp = np.broadcast_to(dp, self.g2_norm.shape)
-        da = np.expand_dims(da, axis=1)
-        da = np.broadcast_to(da, self.g2_norm.shape)
-        ds = np.expand_dims(ds, axis=1)
-        ds = np.broadcast_to(ds, self.g2_norm.shape)
+        dp = np.expand_dims(dp, axis=0)
+        dp = np.broadcast_to(dp, g2_norm.shape)
+        da = np.expand_dims(da, axis=0)
+        da = np.broadcast_to(da, g2_norm.shape)
+        ds = np.expand_dims(ds, axis=0)
+        ds = np.broadcast_to(ds, g2_norm.shape)
 
         # Calculate parameter of interest (Db or v_ms) for each iteration and lag time.
-        g2_norm_0 = np.expand_dims(self.g2_norm_0, axis=1)
-        g2_norm_0 = np.broadcast_to(g2_norm_0, self.g2_norm.shape)
-        delta_od = -np.log((self.g2_norm - 1) / (g2_norm_0 - 1))
+        g2_norm_0 = np.expand_dims(self.g2_norm_0, axis=0)
+        g2_norm_0 = np.broadcast_to(g2_norm_0, g2_norm.shape)
+        delta_od = -np.log((g2_norm - 1) / (g2_norm_0 - 1))
         delta_param = (delta_od - da * delta_mua - ds * delta_musp) / dp
         param = self.msd_model.param0 + delta_param
 
         return param
+
+
+if __name__ == "__main__":
+    import fit_dcs.forward.homogeneous_semi_inf as hsi
+
+    tau = np.logspace(-7, -2, 200)
+    db_true = 5e-8
+    mua = 0.1
+    musp = 10
+    n = 1.4
+    rho = 2.5
+    lambda0 = 785
+    beta_true = 0.5
+    msd_true = common.msd_brownian(tau, db_true)
+    g1_norm_true = hsi.g1_norm(msd_true, mua, musp, n, rho, lambda0)
+    g2_norm_true = 1 + beta_true * g1_norm_true ** 2
+
+    # Add fake noise to the g2_norm curve
+    noise_level = 0.02
+    n_samples = 5
+    g2_norm_noisy = np.array([np.random.normal(g2_norm_true, noise_level, size=g2_norm_true.shape)
+                              for _ in range(n_samples)])
+
+    msd_model = MSDModelMBL(model_name="brownian", param0=db_true)
+    fitter = MBLHomogeneous(
+        g2_norm_0=g2_norm_true,
+        d_factors_fn=hsi.d_factors,
+        msd_model=msd_model,
+        mua=mua,
+        musp=musp,
+        mua0=mua,
+        musp0=musp,
+        rho=rho,
+        n=n,
+        lambda0=lambda0
+    )
+    db_fit = fitter.fit(tau, g2_norm_noisy)
+    print(np.nanmedian(db_fit, axis=1))

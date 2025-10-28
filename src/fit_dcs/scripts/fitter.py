@@ -6,6 +6,7 @@ from fit_dcs.utils.data_loaders import weigh_g2
 from pathlib import Path
 import numpy as np
 
+
 def main():
     parser = argparse.ArgumentParser(description="Fit DCS data with homogeneous semi-infinite model")
     parser.add_argument(
@@ -63,13 +64,11 @@ def main():
         print(f"Processing file {file}")
         data = np.load(file)
         tau = data["tau"]
-        g2_norm_multi = data["g2_norm"][..., channels_idx]
-        countrate = data["countrate"][..., channels_idx]
+        g2_norm_multi = data["g2_norm"][:, channels_idx, :]
+        countrate = data["countrate"][:, channels_idx]
         g2_norm = weigh_g2(g2_norm_multi, countrate)
 
         fitter = fit_hom.FitHomogeneous(
-            tau,
-            g2_norm,
             g1_norm,
             msd_model,
             beta_calculator,
@@ -81,7 +80,7 @@ def main():
             n=n,
             lambda0=lambda0
         )
-        fit_results = fitter.fit()
+        fit_results = fitter.fit(tau, g2_norm)
 
         # Save results
         output_dir = Path(config["output"]["directory"])

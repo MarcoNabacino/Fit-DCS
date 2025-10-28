@@ -75,9 +75,9 @@ class NoiseAdder:
         """
         Class constructor.
 
-        :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each column corresponds to a
-            different iteration, and each row corresponds to a different time delay. The number of rows should be the
-            same as the length of tau.
+        :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each row corresponds to a
+            different iteration, and each column corresponds to a different time delay. The number of rows should be
+            the same as the length of tau.
         :param tau: Vector of time delays [s].
         :param t_integration: Integration time of the measurement [s].
         :param countrate: The count rate of the measurement [Hz]. If a float, the same value is used for all iterations.
@@ -92,14 +92,14 @@ class NoiseAdder:
             noise model decreases with tau. If True, the values after the decreasing portion of sigma are set to
             min(sigma).
         """
-        # Check that the number of rows in g2_norm is the same as the length of tau
-        if g2_norm.shape[0] == len(tau):
+        # Check that the number of columns in g2_norm is the same as the length of tau
+        if g2_norm.shape[-1] == len(tau):
             self.tau = tau
             self.g2_norm = g2_norm
         else:
-            raise ValueError("The number of rows in g2_norm should be the same as the length of tau")
+            raise ValueError("The number columns in g2_norm should be the same as the length of tau")
 
-        # Check that countrate is either a float or an array of the same length as the number of columns in g2_norm
+        # Check that countrate is either a float or an array of the same length as the number of rows in g2_norm
         if isinstance(countrate, (float, int)):
             self.countrate = np.full(len(self), countrate)
         elif isinstance(countrate, np.ndarray):
@@ -107,12 +107,11 @@ class NoiseAdder:
                 self.countrate = countrate
             else:
                 raise ValueError(
-                    "countrate should be a float or an array of the same length as the number of columns in "
-                    "g2_norm")
+                    "countrate should be a float or an array of the same length as the number of rows in g2_norm")
         else:
             raise ValueError("countrate should be a float or an array")
 
-        # Check that tau_lim is either a float or an array of the same length as the number of columns in g2_norm
+        # Check that tau_lim is either a float or an array of the same length as the number of rows in g2_norm
         if isinstance(tau_lim, (float, int)):
             self.tau_lim = np.full(len(self), tau_lim)
         elif isinstance(tau_lim, np.ndarray):
@@ -133,7 +132,7 @@ class NoiseAdder:
         """
         Returns the number of iterations.
         """
-        return self.g2_norm.shape[1]
+        return self.g2_norm.shape[0]
 
     def add_noise(self) -> np.ndarray:
         """
@@ -142,7 +141,7 @@ class NoiseAdder:
         :return: The noisy g2_norm. A matrix the same size as g2_norm.
         """
         # Initialize the noisy g2_norm
-        g2_norm_noisy = np.zeros_like(self.g2_norm)
+        g2_norm_noisy = np.empty_like(self.g2_norm)
 
         for i in range(len(self)):
             # Fit the g2 curve to get tau_c
@@ -163,7 +162,7 @@ class NoiseAdder:
                 sigma_g2[idx_last_good + 1:] = sigma_g2[idx_last_good]
 
             # Add noise to the g2 curve
-            g2_norm_noisy[:, i] = np.random.normal(self.g2_norm[:, i], sigma_g2)
+            g2_norm_noisy[i, :] = np.random.normal(self.g2_norm[i, :], sigma_g2)
 
         return g2_norm_noisy
 
@@ -177,7 +176,7 @@ class NoiseAdder:
         # Calculate the limit of tau for fitting.
         tau_lim = self.tau_lim[i]
         tau_fit = self.tau[self.tau < tau_lim]
-        g2_fit = self.g2_norm[self.tau < tau_lim, i]
+        g2_fit = self.g2_norm[i, self.tau < tau_lim]
 
         def simple_exp(beta, tau, tau_c):
             """
@@ -199,3 +198,37 @@ class NoiseAdder:
 
         # Return the fitted tau_c
         return res.x[0] * 1e-4  # Convert tau_c back to seconds
+
+
+if __name__ == "__main__":
+    import fit_dcs.forward.homogeneous_semi_inf as hsi
+    from fit_dcs.forward import common
+    import matplotlib.pyplot as plt
+
+    tau = np.logspace(-7, -2, 200)
+    db_true = 5e-8
+    mua = 0.1
+    musp = 10
+    n = 1.4
+    rho = 2.5
+    lambda0 = 785
+    beta_true = 0.5
+    msd_true = common.msd_brownian(tau, db_true)
+    g1_norm_true = hsi.g1_norm(msd_true, mua, musp, n, rho, lambda0)
+    g2_norm_true = 1 + beta_true * g1_norm_true ** 2
+
+    n_samples = 5
+    noise_adder = NoiseAdder(
+        g2_norm=np.array([g2_norm_true for _ in range(n_samples)]),
+        tau=tau,
+        t_integration=1,
+        countrate=80e3,
+        beta=beta_true,
+        n_speckle=1,
+        ensure_decreasing=True
+    )
+    g2_norm_noisy = noise_adder.add_noise()
+    plt.semilogx(tau, g2_norm_noisy.T, ".")
+    plt.xlabel(r"$\tau$ (s)")
+    plt.ylabel(r"$g_2$")
+    plt.show()

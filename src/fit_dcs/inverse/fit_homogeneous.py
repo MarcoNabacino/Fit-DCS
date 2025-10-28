@@ -208,22 +208,16 @@ class FitHomogeneous:
 
     def __init__(
             self,
-            tau: np.ndarray,
-            g2_norm: np.ndarray,
             g1_norm_fn: Callable,
             msd_model: MSDModelFit,
             beta_calculator: BetaCalculator,
-            tau_lims_fit: tuple | None = None,
+            tau_lims_fit: tuple[float, float] | None = None,
             g2_lim_fit: float | None = None,
             **kwargs
     ):
         """
         Class constructor.
 
-        :param tau: Vector of time delays [s].
-        :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each column corresponds to a
-            different iteration, and each row corresponds to a different time delay. The number of rows should be the
-            same as the length of tau.
         :param g1_norm_fn: A function that calculates the normalized first-order autocorrelation function g1_norm
             based on the MSD model. This should be one of the functions defined in the forward module. The function
             has the signature g1_norm_model(msd, **kwargs), where msd is the mean-square displacement of the
@@ -242,21 +236,10 @@ class FitHomogeneous:
             used for all iterations. The keyword arguments should be named the same as the arguments of the
             g1_norm_model function.
         """
-
-        # Check that the number of rows in g2_norm is the same as the length of tau
-        if g2_norm.shape[0] == len(tau):
-            self.tau = tau
-            self.g2_norm = g2_norm
-        else:
-            raise ValueError("The number of rows in g2_norm should be the same as the length of tau")
-
         # Check that tau_lims_fit is an ordered pair of floats
         if tau_lims_fit is not None:
-            if isinstance(tau_lims_fit, (tuple, list)) and len(tau_lims_fit) == 2:
-                if (all(isinstance(x, (float, int)) for x in tau_lims_fit)) and tau_lims_fit[0] < tau_lims_fit[1]:
-                    self.tau_lims_fit = tau_lims_fit
-                else:
-                    raise ValueError(f"tau_lims_fit should be an ordered pair of floats, got {tau_lims_fit}")
+            if tau_lims_fit[0] < tau_lims_fit[1]:
+                self.tau_lims_fit = tau_lims_fit
             else:
                 raise ValueError(f"tau_lims_fit should be an ordered pair of floats, got {tau_lims_fit}")
         else:
@@ -269,36 +252,42 @@ class FitHomogeneous:
         self.g2_lim_fit = g2_lim_fit
 
         # Initialize the beta, fitted_params, and chi2 attributes.
-        self.beta = np.full(len(self), np.nan)
-        self.msd_params = {param: np.full(len(self), np.nan) for param in self.msd_model.params}
-        self.chi2 = np.full(len(self), np.nan)
-        self.r2 = np.full(len(self), np.nan)
+        self.beta = None
+        self.msd_params = None
+        self.chi2 = None
+        self.r2 = None
 
-    def __len__(self):
-        """
-        Returns the number of iterations.
-        """
-        return self.g2_norm.shape[1]
-
-    def fit(self, plot_interval: int = 0) -> pd.DataFrame:
+    def fit(self, tau, g2_norm, plot_interval: int = 0) -> pd.DataFrame:
         """
         Fits the model to the data and returns the results as a DataFrame.
 
+        :param tau: Vector of time delays [s].
+        :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is iterations,
+            second dimension is time delays.
         :param plot_interval: If not 0, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations. Default is 0 (no plots).
         :return: A DataFrame with the fitted MSD parameters (column names: 'db' and/or 'v_ms' ), 'beta', 'chi2',
             and 'r2' for each iteration.
         """
-        if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
-            self._calc_beta()
+        n_iter = g2_norm.shape[0]
+        self.beta = np.full(n_iter, np.nan)
+        self.msd_params = {param: np.full(n_iter, np.nan) for param in self.msd_model.params}
+        self.chi2 = np.full(n_iter, np.nan)
+        self.r2 = np.full(n_iter, np.nan)
 
-        for i in range(len(self)):
-            curr_params, self.beta[i], self.chi2[i], self.r2[i] = self._process_iteration(i)
+        if g2_norm.shape[-1] != len(tau):
+            raise ValueError("Shape mismatch: g2_norm should have the same number of columns as the length of tau")
+
+        if self.beta_calculator.mode in ["fixed", "raw", "raw_weighted"]:
+            self._calc_beta(tau, g2_norm)
+
+        for i in range(n_iter):
+            curr_params, self.beta[i], self.chi2[i], self.r2[i] = self._process_iteration(i, tau, g2_norm)
             for param in curr_params:
                 self.msd_params[param][i] = curr_params[param]
 
             if plot_interval > 0 and i % plot_interval == 0:
-                f = self._plot_fit(i)
+                f = self._plot_fit(i, tau, g2_norm)
                 f.show()
 
        # Create a DataFrame with the fitted parameters and beta
@@ -309,7 +298,7 @@ class FitHomogeneous:
 
         return df
 
-    def _calc_beta(self):
+    def _calc_beta(self, tau, g2_norm):
         """
         Calculates the beta parameter for all iterations based on the beta_calculator attribute and stores it in the
         beta attribute. Only called if beta_calculator.mode is "fixed", "raw", or "raw_weighted".
@@ -317,49 +306,64 @@ class FitHomogeneous:
         The beta attribute is a vector of the same length as the number of iterations, where each element is the beta
         parameter for the corresponding iteration.
 
+        :param tau: Vector of time delays [s].
+        :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is time delays,
+            second dimension is iterations.
         :return: None
         """
+        n_iter = g2_norm.shape[0]
         if self.beta_calculator.mode == "fixed":
-            self.beta = np.full((len(self),), self.beta_calculator.beta_fixed)
-        elif self.beta_calculator.mode == "raw":
-            idx_first = np.argmax(self.tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
-            idx_last = np.argmax(self.tau > self.beta_calculator.tau_lims[1])  # First index after the upper limit
+            self.beta = np.full(n_iter, self.beta_calculator.beta_fixed)
+            return
+
+        if self.beta_calculator.mode == "raw":
+            idx_first = np.argmax(tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
+            idx_last = np.argmax(tau > self.beta_calculator.tau_lims[1])  # First index after the upper limit
             if idx_first >= idx_last:
                 raise ValueError("The upper limit of tau_lims should be greater than the lower limit")
-            self.beta = np.mean(self.g2_norm[idx_first:idx_last, :], axis=0) - 1
-        elif self.beta_calculator.mode == "raw_weighted":
+            self.beta = np.mean(g2_norm[:, idx_first:idx_last], axis=-1) - 1
+            return
+
+        if self.beta_calculator.mode == "raw_weighted":
             # Estimate tau_c using a simple exponential model
             g2_value = 1 + self.beta_calculator.beta0 * np.exp(-self.beta_calculator.alpha)
             # Find the last value of tau where g2_norm is greater than g2_value
-            mask = self.g2_norm > g2_value
-            last_indices = np.argmax(mask[::-1], axis=0) # Reverse search to find the last index in each iteration (column)
-            last_indices = len(self.tau) - 1 - last_indices # Reverse the indices back
-            tau_c = self.tau[last_indices] # Value of tau corresponding to the last index; this is alpha * tau_c
-            tau_c /= self.beta_calculator.alpha # Divide by alpha to get tau_c
+            mask = g2_norm > g2_value
+            mask_rev = mask[:, ::-1]
+            first_true_rev = np.argmax(mask_rev, axis=-1)
+            has_true = np.any(mask, axis=-1)
+            last_indices = np.full(n_iter, len(tau) - 1)  # Default to last index if no True found
+            last_indices[has_true] = len(tau) - 1 - first_true_rev[has_true]
+            tau_c = tau[last_indices] / self.beta_calculator.alpha
             # Calculate the weighted beta
-            idx_first = np.argmax(self.tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
-            idx_last = np.argmax(self.tau > self.beta_calculator.tau_lims[1])  # First index after the upper limit
+            idx_first = np.argmax(tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
+            idx_last = np.argmax(tau > self.beta_calculator.tau_lims[1])  # First index after the upper limit
             if idx_first >= idx_last:
                 raise ValueError("The upper limit of tau_lims should be greater than the lower limit")
 
-            g2_norm_crop = self.g2_norm[idx_first:idx_last, :]
-            tau_crop = self.tau[idx_first:idx_last]
-            tau_crop = np.expand_dims(tau_crop, axis=-1)
-            tau_crop = np.broadcast_to(tau_crop, g2_norm_crop.shape)
-            self.beta = np.mean((self.g2_norm[idx_first:idx_last, :] - 1) * (1 + tau_crop / tau_c), axis=0)
+            g2_norm_crop = g2_norm[:, idx_first:idx_last]
+            tau_crop = tau[idx_first:idx_last][np.newaxis, :]  # Shape (1, n_cropped)
+            weights = 1 + tau_crop / tau_c[:, np.newaxis]  # Shape (n_iter, n_cropped)
+            self.beta = np.mean((g2_norm_crop - 1) * weights, axis=-1)
+            return
 
-    def _process_iteration(self, i: int) -> tuple[Dict, float, float, float]:
+        raise ValueError(f"Unknown beta calculation mode: {self.beta_calculator.mode}")
+
+    def _process_iteration(self, i: int, tau: np.ndarray, g2_norm: np.ndarray) -> tuple[Dict, float, float, float]:
         """
         Fits only the MSD params of the model (i.e., no beta) to a single iteration.
         Processes a single iteration (i.e., a single g2_norm), returning the fitted MSD parameters, beta, chi2 and r2.
 
         :param i: Index of the iteration to fit.
+        :param tau: Vector of time delays [s].
+        :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is iterations,
+            second dimension is time delays.
         :return: A 4-tuple containing: (a Dict with the fitted parameters, beta, chi2, r2).
         """
         # Crop the data based on tau_lims_fit and g2_lim_fit
-        idx_first, idx_last = self._crop_to_fit_interval(i)
-        tau_cropped = self.tau[idx_first:idx_last]
-        g2_norm_cropped = self.g2_norm[idx_first:idx_last, i]
+        idx_first, idx_last = self._crop_to_fit_interval(tau, g2_norm[i, :])
+        tau_cropped = tau[idx_first:idx_last]
+        g2_norm_cropped = g2_norm[i, idx_first:idx_last]
 
         # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
         # optimization algorithm.
@@ -435,52 +439,64 @@ class FitHomogeneous:
 
         return msd_params_dict, beta, chi2, r2
 
-    def _crop_to_fit_interval(self, i: int) -> tuple:
+    def _crop_to_fit_interval(self, tau: np.ndarray, g2_norm_single: np.ndarray) -> tuple:
         """
         Crops the data based on tau_lims_fit and g2_lim_fit.
-        :param i: Index of the iteration to crop.
+
+        :param tau: Vector of time delays [s].
+        :param g2_norm_single: Vector of normalized second-order autocorrelation function for the iteration to fit.
         :return: The indices of the first and last elements of the cropped data.
         """
+        n = len(tau)
+        # Default full range
+        idx_first, idx_last = 0, n
         if self.tau_lims_fit is not None and self.g2_lim_fit is not None:
-            idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
-            idx_last_tau = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
-            indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
-            idx_last_g2 = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
+            idx_first = np.searchsorted(tau, self.tau_lims_fit[0], side="right")
+            idx_last_tau = np.searchsorted(tau, self.tau_lims_fit[1], side="right")
+            indices = np.where(g2_norm_single > self.g2_lim_fit)[0]
+            idx_last_g2 = indices[-1] + 1 if indices.size > 0 else n
             idx_last = min(idx_last_tau, idx_last_g2)
             if idx_first >= idx_last:
-                warnings.warn(f"Last index ({idx_last}) is less than or equal to first index ({idx_first}). "
-                              f"Falling back to using tau_lims_fit ({idx_first}, {idx_last_tau}) only.")
+                warnings.warn(f"Last index ({idx_last}) <= first index ({idx_first}). "
+                              "Falling back to tau_lims_fit interval; if still invalid, using entire tau range")
                 idx_last = idx_last_tau
+                if idx_first >= idx_last:
+                    idx_first, idx_last =  0, n
         elif self.tau_lims_fit is not None:
-            idx_first = np.argmax(self.tau > self.tau_lims_fit[0])  # First index after the lower limit
-            idx_last = np.argmax(self.tau > self.tau_lims_fit[1])  # First index after the upper limit
-        elif self.g2_lim_fit is not None:
-            idx_first = 0
-            indices = np.where(self.g2_norm[:, i] > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
-            idx_last = indices[-1] if len(indices) > 0 else -1 # Last index where g2_norm > g2_lim_fit
+            idx_first = np.searchsorted(tau, self.tau_lims_fit[0], side="right")
+            idx_last = np.searchsorted(tau, self.tau_lims_fit[1], side="right")
             if idx_first >= idx_last:
+                warnings.warn(f"Last index ({idx_last}) <= first index ({idx_first}). "
+                              f"Falling back to using the entire tau range")
+                idx_first, idx_last = 0, n
+        elif self.g2_lim_fit is not None:
+            indices = np.where(g2_norm_single > self.g2_lim_fit)[0] # Indices where g2_norm > g2_lim_fit
+            if indices.size > 0:
+                idx_first = 0
+                idx_last = indices[-1] + 1
+            else:
                 warnings.warn(f"Cannot find any g2_norm values greater than g2_lim_fit ({self.g2_lim_fit}). "
                               f"Falling back to using the entire tau range")
-                idx_last = len(self.tau)
-        else:
-            idx_first = 0
-            idx_last = len(self.tau)
+                idx_first, idx_last = 0, n
 
         return idx_first, idx_last
 
-    def _plot_fit(self, i: int) -> plt.Figure:
+    def _plot_fit(self, i: int, tau: np.ndarray, g2_norm: np.ndarray) -> plt.Figure:
         """
         Plots the g2_norm curve and the fitted curve for a single iteration, also displaying the fitting interval
         :param i: The index of the iteration to plot
+        :param tau: Vector of time delays [s].
+        :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is iterations,
+            second dimension is time delays.
         :return: The figure object
         """
-        idx_first, idx_last = self._crop_to_fit_interval(i)
-        tau_fit = self.tau[idx_first:idx_last]
-        g2_norm_fit, msd_params, beta = self._get_best_fit(i)
+        idx_first, idx_last = self._crop_to_fit_interval(tau, g2_norm[i, :])
+        tau_fit = tau[idx_first:idx_last]
+        g2_norm_fit, msd_params, beta = self._get_best_fit(i, tau)
         g2_norm_fit = g2_norm_fit[idx_first:idx_last]
 
         f = plt.figure()
-        plt.semilogx(self.tau, self.g2_norm[:, i], marker='.', linestyle='none', label="Data")
+        plt.semilogx(tau, g2_norm[i, :], marker='.', linestyle='none', label="Data")
         plt.semilogx(tau_fit, g2_norm_fit, label="Fit")
         text = f"β = {beta:.2f}\n" + "\n".join([f"{k} = {v:.2e}" for k, v in msd_params.items()])
         plt.annotate(text, xy=(0.05, 0.20), xycoords="axes fraction", fontsize=10,
@@ -493,17 +509,18 @@ class FitHomogeneous:
 
         return f
 
-    def _get_best_fit(self, i: int) -> tuple[np.ndarray, Dict, float]:
+    def _get_best_fit(self, i: int, tau: np.ndarray) -> tuple[np.ndarray, Dict, float]:
         """
         Calculates the best fit g2_norm curve for a single iteration using the fitted parameters.
 
         :param i: The index of the iteration to calculate the best fit g2_norm curve.
+        :param tau: Vector of time delays [s].
         :return: A tuple containing: (the best fit g2_norm curve, a Dict with the fitted parameters, beta).
         """
         beta = self.beta[i]
 
         msd_params = {param: self.msd_params[param][i] for param in self.msd_model.params}
-        msd = self.msd_model.msd_fn(self.tau, *msd_params.values())
+        msd = self.msd_model.msd_fn(tau, *msd_params.values())
 
         # self.g1_args contains the additional arguments needed for the g1_norm function, as vectors or floats.
         # We need to select the i-th element of each argument vector for the current iteration.
@@ -513,3 +530,43 @@ class FitHomogeneous:
         g2_norm = 1 + beta * g1_norm ** 2
 
         return g2_norm, msd_params, beta
+
+
+if __name__ == "__main__":
+    import fit_dcs.forward.homogeneous_semi_inf as hsi
+
+    tau = np.logspace(-7, -2, 200)
+    db_true = 5e-8
+    mua = 0.1
+    musp = 10
+    n = 1.4
+    rho = 2.5
+    lambda0 = 785
+    beta_true = 0.5
+    msd_true = common.msd_brownian(tau, db_true)
+    g1_norm_true = hsi.g1_norm(msd_true, mua, musp, n, rho, lambda0)
+    g2_norm_true = 1 + beta_true * g1_norm_true ** 2
+
+    # Add fake noise to the g2_norm curve
+    noise_level = 0.02
+    n_samples = 5
+    g2_norm_noisy = np.array([np.random.normal(g2_norm_true, noise_level, size=g2_norm_true.shape)
+                              for _ in range(n_samples)])
+
+    msd_model = MSDModelFit(model_name="brownian", param_init={"db": 1e-8},
+                            param_bounds={"db": (0, None)})
+    beta_calculator = BetaCalculator(mode="fit", beta_init=0.48, beta_bounds=(0, 1))
+    fitter = FitHomogeneous(
+        g1_norm_fn=hsi.g1_norm,
+        msd_model=msd_model,
+        beta_calculator=beta_calculator,
+        tau_lims_fit=(1e-7, 1e-2),
+        g2_lim_fit=1.13,
+        mua=mua,
+        musp=musp,
+        n=n,
+        rho=rho,
+        lambda0=lambda0
+    )
+    results_df = fitter.fit(tau, g2_norm_noisy, plot_interval=10)
+    print(results_df)

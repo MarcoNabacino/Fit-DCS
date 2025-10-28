@@ -42,7 +42,7 @@ def process_file(file, integration_time, channels, p, m, s, tau_start, output_di
     # Discard initial tau values below tau_start (they are zero)
     mask = loader.tau > tau_start
     tau = loader.tau[mask]
-    g2_norm = loader.g2_norm[mask, ...]
+    g2_norm = loader.g2_norm[:, :, mask]
     countrate = loader.countrate
 
     # Save results

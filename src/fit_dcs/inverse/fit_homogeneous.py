@@ -21,15 +21,15 @@ class MSDModelFit:
         diffusion coefficient (db) and the mean square speed of the scatterers (v_ms).
     """
 
-    def __init__(self, model_name: Literal["brownian", "ballistic", "hybrid"], param_init: Dict,
-                 param_bounds: Dict | None = None):
+    def __init__(self, model_name: Literal["brownian", "ballistic", "hybrid"], params_init: Dict,
+                 params_bounds: Dict | None = None):
         """
         Class constructor.
 
         :param model_name: The name of the MSD model. Choose from "brownian", "ballistic", or "hybrid".
-        :param param_init: Initial values of the parameters of the model. A dictionary with the parameter names as keys
+        :param params_init: Initial values of the parameters of the model. A dictionary with the parameter names as keys
             and the initial values as values.
-        :param param_bounds: Bounds of the parameters of the model (optional). A dictionary with the parameter names as
+        :param params_bounds: Bounds of the parameters of the model (optional). A dictionary with the parameter names as
             keys and 2-tuples as values, where the first element is the lower bound and the second element is the upper
             bound. To set no bound, use None rather that inf. If None, no bounds are set.
         """
@@ -38,20 +38,20 @@ class MSDModelFit:
 
         # Check that param_init contains initial values for all parameters of the model, that is, the keys of param_init
         # should match the params of the model.
-        if set(param_init.keys()) == set(self.params):
-            self.param_init = param_init
+        if set(params_init.keys()) == set(self.params):
+            self.params_init = params_init
         else:
             raise ValueError("param_init should contain initial values for all parameters of the model")
 
         # Check that, if param_bounds is not None, then it contains bounds for all parameters of the model, that is,
         # the keys of param_bounds should match the params of the model.
-        if param_bounds is not None:
-            if set(param_bounds.keys()) == set(self.params):
-                self.param_bounds = param_bounds
+        if params_bounds is not None:
+            if set(params_bounds.keys()) == set(self.params):
+                self.params_bounds = params_bounds
             else:
                 raise ValueError("param_bounds should contain bounds for all parameters of the model")
         else:
-            self.param_bounds = {param: (None, None) for param in self.params}
+            self.params_bounds = {param: (None, None) for param in self.params}
 
     def _get_msd_fn(self):
         """
@@ -170,7 +170,7 @@ class FitHomogeneous:
     def __init__(
             self,
             g1_norm_fn: Callable,
-            msd_model: MSDModelFit,
+            msd_model: MSDModelFit | tuple,
             beta_calculator: BetaCalculator,
             tau_lims_fit: tuple[float, float] | None = None,
             g2_lim_fit: float | None = None,
@@ -183,7 +183,8 @@ class FitHomogeneous:
             based on the MSD model. This should be one of the functions defined in the forward module. The function
             has the signature g1_norm_model(msd, **g1_args), where msd is the mean-square displacement of the
             scatterers, and **g1_args are the additional arguments needed for the function.
-        :param msd_model: An instance of the MSDModel class.
+        :param msd_model: An instance of the MSDModel class or a tuple of multiple instances (for non-homogeneous
+            models such as a bilayer model). In the latter case, each instance corresponds to a different medium.
         :param beta_calculator: An instance of the BetaCalculator class.
         :param tau_lims_fit: Ordered pair of floats defining the lower and upper limits of the time delays used for
             fitting. If None, the entire tau range is used.
@@ -224,13 +225,18 @@ class FitHomogeneous:
                 g1_args[key] = self.n_multi * (value,)
 
         self.g1_args = g1_args
-        self.msd_model = msd_model
+        if isinstance(msd_model, tuple):
+            self.n_media = len(msd_model)
+            self.msd_models = msd_model
+        elif isinstance(msd_model, MSDModelFit):
+            self.n_media = 1
+            self.msd_models = (msd_model,)
         self.beta_calculator = beta_calculator
         self.g2_lim_fit = g2_lim_fit
 
         # Initialize the beta, fitted_params, and chi2 attributes.
         self.beta = None
-        self.msd_params = None
+        self.msd_params_dict = None
         self.chi2 = None
         self.r2 = None
 
@@ -257,7 +263,12 @@ class FitHomogeneous:
             raise ValueError("Shape mismatch: g2_norm should have the same number of columns as the length of tau")
 
         self.beta = np.full((n_iter, self.n_multi), np.nan)
-        self.msd_params = {param: np.full(n_iter, np.nan) for param in self.msd_model.params}
+        self.msd_params_dict = {}
+        for k in range(self.n_media):
+            msd_model = self.msd_models[k]
+            for param in msd_model.params:
+                param_key = f"{param}_{k}" if self.n_media > 1 else param  # Example: "db_0", "v_ms_1", etc.
+                self.msd_params_dict[param_key] = np.full(n_iter, np.nan)
         self.chi2 = np.full(n_iter, np.nan)
         self.r2 = np.full(n_iter, np.nan)
 
@@ -267,14 +278,14 @@ class FitHomogeneous:
         for i in range(n_iter):
             curr_params, self.beta[i, :], self.chi2[i], self.r2[i] = self._process_iteration(i, tau, g2_norm)
             for param in curr_params:
-                self.msd_params[param][i] = curr_params[param]
+                self.msd_params_dict[param][i] = curr_params[param]
 
             if plot_interval > 0 and i % plot_interval == 0:
                 f = self._plot_fit(i, tau, g2_norm)
                 f.show()
 
-       # Create a DataFrame with the fitted parameters and beta
-        df = pd.DataFrame(self.msd_params)
+        # Create a DataFrame with the fitted parameters and beta
+        df = pd.DataFrame(self.msd_params_dict)
         # Create 1 column per multi-curve to save beta
         if self.n_multi == 1:
             df["beta"] = np.squeeze(self.beta)
@@ -324,21 +335,26 @@ class FitHomogeneous:
         # Get the boolean mask to crop g2_norm and tau for fitting
         crop_mask = self._get_crop_mask(tau, g2_norm[i, :, :])
 
-        # Scale factor for the parameters. The parameters are scaled so that they are around 1, which helps the
-        # optimization algorithm.
-        scale_array = np.fromiter(self.msd_model.params_scale.values(), dtype=float)
+        scale_list = []  # Scale factors for all parameters of all media. Order: media 0 params, media 1 params, etc.
+        msd_params_init_list = []  # Initial values for all parameters of all media. Order: media 0 params, media 1 params, etc.
+        msd_bounds_list = []  # Bounds for all parameters of all media. Order: media 0 params, media 1 params, etc.
+        for k in range(self.n_media):
+            msd_model = self.msd_models[k]
+            scale_list.extend(msd_model.params_scale.values())
+            msd_params_init_list.extend(msd_model.params_init.values())
+            msd_bounds_list.extend(msd_model.params_bounds.values())
+        scale_array = np.fromiter(scale_list, dtype=float)
+        scaled_msd_params_init = np.fromiter(msd_params_init_list, dtype=float) / scale_array
 
-        scaled_msd_params_init = np.fromiter(self.msd_model.param_init.values(), dtype=float) / scale_array
         if self.beta_calculator.mode == "fit":
             beta_init = np.full(self.n_multi, self.beta_calculator.beta_init)
             scaled_x0 = np.concatenate((scaled_msd_params_init, beta_init))
         else:
             scaled_x0 = scaled_msd_params_init
-        msd_bounds = list(self.msd_model.param_bounds.values())
         scaled_msd_bounds = [
             (lo / s if lo is not None else None,
              hi / s if hi is not None else None)
-            for (lo, hi), s in zip(msd_bounds, scale_array)
+            for (lo, hi), s in zip(msd_bounds_list, scale_array)
         ]
         if self.beta_calculator.mode == "fit":
             scaled_beta_bounds = self.n_multi * [self.beta_calculator.beta_bounds]
@@ -355,6 +371,7 @@ class FitHomogeneous:
             :return: The sum of the squared differences between the model and the data.
             """
             if self.beta_calculator.mode == "fit":
+                # Split params into msd_params and beta_multi
                 msd_params = params[:-self.n_multi]
                 beta_multi = params[-self.n_multi:]
             else:
@@ -367,7 +384,7 @@ class FitHomogeneous:
                 if not np.any(mask_j):
                     continue
                 tau_j = tau[mask_j]
-                msd_j = self.msd_model.msd_fn(tau_j, *msd_params)
+                msd_j = self._build_msd(tau_j, msd_params)
                 g1_args_j = self._get_g1_args(i, j)
                 g1_norm_j = self.g1_norm_fn(msd_j, **g1_args_j)
 
@@ -393,7 +410,8 @@ class FitHomogeneous:
             else:
                 msd_params = res.x * scale_array
                 beta = self.beta[i, :]
-            msd_params_dict = dict(zip(self.msd_model.params, msd_params))
+            keys = list(self.msd_params_dict.keys())
+            msd_params_dict = {k: v for k, v in zip(keys, msd_params)}
 
             # Calculate chi2 and r2 by averaging over all multi-curves
             chi2 = 0.0
@@ -406,14 +424,12 @@ class FitHomogeneous:
                     n_multi_valid -= 1
                     continue
                 tau_j = tau[mask_j]
-                g2_norm_cropped = g2_norm[i, j, :][mask_j]
-
-                msd_j = self.msd_model.msd_fn(tau_j, *msd_params)
-
+                msd_j = self._build_msd(tau_j, msd_params)
                 g1_args_j = self._get_g1_args(i, j)
-
                 g1_norm_j = self.g1_norm_fn(msd_j, **g1_args_j)
                 g2_norm_best_fit = 1 + beta[j] * g1_norm_j ** 2
+
+                g2_norm_cropped = g2_norm[i, j, :][mask_j]
 
                 square_err = (g2_norm_cropped - g2_norm_best_fit) ** 2
                 chi2 += np.sum(square_err / g2_norm_best_fit)
@@ -421,7 +437,8 @@ class FitHomogeneous:
             chi2 /= n_multi_valid
             r2 /= n_multi_valid
         else:
-            msd_params_dict = dict(zip(self.msd_model.params, np.full(len(res.x), np.nan)))
+            keys = list(self.msd_params_dict.keys())
+            msd_params_dict = {k: np.nan for k in keys}
             beta = np.full(self.n_multi, np.nan) if self.beta_calculator.mode == "fit" else self.beta[i, :]
             chi2 = np.nan
             r2 = np.nan
@@ -539,10 +556,12 @@ class FitHomogeneous:
             - A Dict with the fitted MSD parameters.
             - A 1D array with the beta values for each multi-curve.
         """
-        msd_params = {param: self.msd_params[param][i] for param in self.msd_model.params}
-        beta = self.beta[i, :]
+        # Get the fitted MSD parameters for this iteration
+        msd_params_dict = {k: v[i] for k, v in self.msd_params_dict.items()}
+        msd_params_array = np.array(list(msd_params_dict.values()))
+        msd = self._build_msd(tau, msd_params_array)
 
-        msd = self.msd_model.msd_fn(tau, *msd_params.values())
+        beta = self.beta[i, :]
 
         g2_norm = np.empty((self.n_multi, len(tau)))
         for j in range(self.n_multi):
@@ -550,7 +569,7 @@ class FitHomogeneous:
             g1_norm_j = self.g1_norm_fn(msd, **g1_args_j)
             g2_norm[j, :] = 1 + beta[j] * g1_norm_j ** 2
 
-        return g2_norm, msd_params, beta
+        return g2_norm, msd_params_dict, beta
 
     def _get_g1_args(self, i: int, j: int) -> Dict:
         """
@@ -568,6 +587,24 @@ class FitHomogeneous:
             else:
                 g1_args_j[key] = elem
         return g1_args_j
+
+    def _build_msd(self, tau, msd_params_array) -> np.ndarray:
+        """
+        Builds the mean-square displacement (MSD) array for all media based on the provided parameters.
+
+        :param tau: Vector of time delays [s].
+        :param msd_params_array: Array of MSD parameters for all media concatenated.
+        :return: A 2D array with shape (n_media, n_tau) containing the MSD for each medium.
+        """
+        msd = np.empty((self.n_media, len(tau)))
+        for k in range(self.n_media):
+            msd_model = self.msd_models[k]
+            first = k * len(msd_model.params)
+            last = (k + 1) * len(msd_model.params)
+            msd_params_k = msd_params_array[first:last]
+            msd[k, :] = msd_model.msd_fn(tau, *msd_params_k)
+
+        return msd
 
 
 if __name__ == "__main__":
@@ -592,8 +629,8 @@ if __name__ == "__main__":
     noise_level = 0.02
     g2_norm_noisy = np.random.normal(g2_norm_true, noise_level)
 
-    msd_model = MSDModelFit(model_name="brownian", param_init={"db": 1e-8},
-                            param_bounds={"db": (0, None)})
+    msd_model = MSDModelFit(model_name="brownian", params_init={"db": 1e-8},
+                            params_bounds={"db": (0, None)})
     beta_calculator = BetaCalculator(mode="fit", beta_init=0.48, beta_bounds=(0, 1))
     fitter = FitHomogeneous(
         g1_norm_fn=hsi.g1_norm,

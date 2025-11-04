@@ -47,8 +47,8 @@ def main():
 
     msd_model = fit_hom.MSDModelFit(
         model_name="brownian",
-        param_init={"db": config["fitting"]["db_init"]},
-        param_bounds={"db": config["fitting"]["db_bounds"]},
+        params_init={"db": config["fitting"]["db_init"]},
+        params_bounds={"db": config["fitting"]["db_bounds"]},
     )
 
     tau_lims_fit = config["fitting"]["tau_lims_fit"]

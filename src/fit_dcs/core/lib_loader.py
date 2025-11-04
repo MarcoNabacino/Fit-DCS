@@ -46,25 +46,21 @@ try:
         POINTER(c_double),  # tau_out
     ]
     ASYNC_CORR_LIB.async_corr.restype = None
-    _HAS_CORR_LIB = True
 except FileNotFoundError:
     warnings.warn("Fast C implementation of async_corr not found. Using slower Python implementation."
                   "macOS/Linux users need to compile the C library manually. See the README for instructions.")
     ASYNC_CORR_LIB = None
-    _HAS_CORR_LIB = False
 
 # Load libbilayer
 try:
     lib_path = get_lib_path("libbilayer")
     BILAYER_LIB = ctypes.CDLL(lib_path)
     BILAYER_LIB.integrand.argtypes = [
-        c_int,
-        POINTER(c_double),
-        c_void_p
+        c_int,  # Number of variables
+        POINTER(c_double),  # Integration variables
+        c_void_p  # Additional parameters
     ]
     BILAYER_LIB.integrand.restype = c_double
-    _HAS_BILAYER_LIB = True
 except FileNotFoundError:
     warnings.warn("Fast C implementation of bilayer model not found. Using slower Python implementation.")
     BILAYER_LIB = None
-    _HAS_BILAYER_LIB = False

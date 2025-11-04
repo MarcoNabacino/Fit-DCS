@@ -10,7 +10,7 @@ try:
     _HAS_TIMETAGGER = True
 except ImportError:
     _HAS_TIMETAGGER = False
-from fit_dcs.core.lib_loader import _HAS_CORR_LIB
+from fit_dcs.core.lib_loader import ASYNC_CORR_LIB
 
 
 class DataLoaderALV:
@@ -212,7 +212,7 @@ class DataLoaderTimeTagger:
 
     def _process_channel(self, i_channel, tt):
         countrate_out = countrate(tt[i_channel], self.T0)
-        if _HAS_CORR_LIB:
+        if ASYNC_CORR_LIB is not None:
             g2_norm_out, tau_out = async_corr_c(
                 np.array(tt[i_channel]),
                 **self.correlator_args

@@ -4,7 +4,7 @@ project(Fit_DCS C)
 set(CMAKE_C_STANDARD 11)
 
 # Output directory for shared libraries
-set(LIB_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/src/fit_dcs/lib")
+set(LIB_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../src/fit_dcs/lib")
 # Create 'lib' folder if it doesn't exist
 file(MAKE_DIRECTORY ${LIB_OUTPUT_DIR})
 

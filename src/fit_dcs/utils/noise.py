@@ -63,8 +63,6 @@ class NoiseAdder:
 
     def __init__(
             self,
-            g2_norm: np.ndarray,
-            tau: np.ndarray,
             t_integration: float,
             countrate: float | np.ndarray,
             beta: float,
@@ -75,10 +73,6 @@ class NoiseAdder:
         """
         Class constructor.
 
-        :param g2_norm: Matrix of normalized second-order autocorrelation functions. Each row corresponds to a
-            different iteration, and each column corresponds to a different time delay. The number of rows should be
-            the same as the length of tau.
-        :param tau: Vector of time delays [s].
         :param t_integration: Integration time of the measurement [s].
         :param countrate: The count rate of the measurement [Hz]. If a float, the same value is used for all iterations.
             If a vector, its length should be the same as the number of columns in g2_norm.
@@ -92,64 +86,48 @@ class NoiseAdder:
             noise model decreases with tau. If True, the values after the decreasing portion of sigma are set to
             min(sigma).
         """
-        # Check that the number of columns in g2_norm is the same as the length of tau
-        if g2_norm.shape[-1] == len(tau):
-            self.tau = tau
-            self.g2_norm = g2_norm
-        else:
-            raise ValueError("The number columns in g2_norm should be the same as the length of tau")
-
-        # Check that countrate is either a float or an array of the same length as the number of rows in g2_norm
-        if isinstance(countrate, (float, int)):
-            self.countrate = np.full(len(self), countrate)
-        elif isinstance(countrate, np.ndarray):
-            if len(countrate) == len(self):
-                self.countrate = countrate
-            else:
-                raise ValueError(
-                    "countrate should be a float or an array of the same length as the number of rows in g2_norm")
-        else:
-            raise ValueError("countrate should be a float or an array")
-
-        # Check that tau_lim is either a float or an array of the same length as the number of rows in g2_norm
-        if isinstance(tau_lim, (float, int)):
-            self.tau_lim = np.full(len(self), tau_lim)
-        elif isinstance(tau_lim, np.ndarray):
-            if len(tau_lim) == len(self):
-                self.tau_lim = tau_lim
-            else:
-                raise ValueError("tau_lim should be a float or an array of the same length as the number of "
-                                 "columns in g2_norm")
-        else:
-            raise ValueError("tau_lim should be a float or an array")
-
+        self.countrate = countrate
+        self.tau_lim = tau_lim
         self.t_integration = t_integration
         self.beta = beta
         self.n_speckle = n_speckle
         self.ensure_decreasing = ensure_decreasing
 
-    def __len__(self):
-        """
-        Returns the number of iterations.
-        """
-        return self.g2_norm.shape[0]
-
-    def add_noise(self) -> np.ndarray:
+    def add_noise(self, tau, g2_norm) -> np.ndarray:
         """
         Adds noise to the normalized second-order autocorrelation functions.
 
+        :param tau: Vector of time delays. [s]
+        :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is
+            iterations, second dimension is time delays.
         :return: The noisy g2_norm. A matrix the same size as g2_norm.
         """
-        # Initialize the noisy g2_norm
-        g2_norm_noisy = np.empty_like(self.g2_norm)
+        # Check that the number of columns in g2_norm is the same as the length of tau
+        if g2_norm.shape[-1] != len(tau):
+            raise ValueError("The number columns in g2_norm should be the same as the length of tau")
 
-        for i in range(len(self)):
+        # Check that number of iteration is consistent between g2_norm, countrate, and tau_lim
+        if isinstance(self.countrate, np.ndarray):
+            if g2_norm.shape[0] != len(self.countrate):
+                raise ValueError("g2_norm should have the same number of rows as the length of countrate")
+        else:
+            self.countrate = np.full(g2_norm.shape[0], self.countrate)
+        if isinstance(self.tau_lim, np.ndarray):
+            if g2_norm.shape[0] != len(self.tau_lim):
+                raise ValueError("g2_norm should have the same number of rows as the length of tau_lim")
+        else:
+            self.tau_lim = np.full(g2_norm.shape[0], self.tau_lim)
+
+        # Initialize the noisy g2_norm
+        g2_norm_noisy = np.empty_like(g2_norm)
+
+        for i in range(g2_norm.shape[0]):
             # Fit the g2 curve to get tau_c
-            tau_c = self._fit_tau_c(i)
+            tau_c = self._fit_tau_c(tau, g2_norm[i, :], self.tau_lim[i], self.beta)
 
             # Calculate the standard deviation of the normalized g2 curve
             sigma_g2 = sigma_g2_norm(
-                self.tau,
+                tau,
                 self.t_integration,
                 self.countrate[i],
                 self.beta,
@@ -162,21 +140,26 @@ class NoiseAdder:
                 sigma_g2[idx_last_good + 1:] = sigma_g2[idx_last_good]
 
             # Add noise to the g2 curve
-            g2_norm_noisy[i, :] = np.random.normal(self.g2_norm[i, :], sigma_g2)
+            g2_norm_noisy[i, :] = np.random.normal(g2_norm[i, :], sigma_g2)
 
         return g2_norm_noisy
 
-    def _fit_tau_c(self, i: int) -> float:
+    @staticmethod
+    def _fit_tau_c(tau: np.ndarray, g2_norm_single: np.ndarray, tau_lim: float, beta: float) -> float:
         """
         Fits the g2 curve of iteration i to get the corresponding correlation time tau_c, automatically selecting the
         portion of the curve to fit based on the parameters of the medium.
-        :param i: Index of the iteration.
+        :param tau: Vector of time delays. [s]
+        :param g2_norm_single: 1D normalized second-order autocorrelation function for iteration i.
+        :param tau_lim: Upper limit of tau for fitting the autocorrelation function [s].
+        :param beta: Light coherence factor.
+
         :return: The fitted correlation time tau_c [s].
         """
         # Calculate the limit of tau for fitting.
-        tau_lim = self.tau_lim[i]
-        tau_fit = self.tau[self.tau < tau_lim]
-        g2_fit = self.g2_norm[i, self.tau < tau_lim]
+        mask = tau < tau_lim
+        tau_fit = tau[mask]
+        g2_fit = g2_norm_single[mask]
 
         def simple_exp(beta, tau, tau_c):
             """
@@ -189,7 +172,7 @@ class NoiseAdder:
             Cost function for the fit.
             """
             # To help the optimizer, the input tau_c is in hundreds of microseconds. Convert it to seconds.
-            g2_simple_exp = simple_exp(self.beta, tau_fit, tau_c * 1e-4)
+            g2_simple_exp = simple_exp(beta, tau_fit, tau_c * 1e-4)
             return np.sum((g2_fit - g2_simple_exp) ** 2)
 
         x0 = np.array(2)  # Initial guess for tau_c in hundreds of microseconds
@@ -219,15 +202,13 @@ if __name__ == "__main__":
 
     n_samples = 5
     noise_adder = NoiseAdder(
-        g2_norm=np.array([g2_norm_true for _ in range(n_samples)]),
-        tau=tau,
         t_integration=1,
         countrate=80e3,
         beta=beta_true,
         n_speckle=1,
         ensure_decreasing=True
     )
-    g2_norm_noisy = noise_adder.add_noise()
+    g2_norm_noisy = noise_adder.add_noise(g2_norm=np.array([g2_norm_true for _ in range(n_samples)]), tau=tau)
     plt.semilogx(tau, g2_norm_noisy.T, ".")
     plt.xlabel(r"$\tau$ (s)")
     plt.ylabel(r"$g_2$")

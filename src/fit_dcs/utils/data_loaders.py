@@ -10,7 +10,7 @@ try:
     _HAS_TIMETAGGER = True
 except ImportError:
     _HAS_TIMETAGGER = False
-from fit_dcs.core.lib_loader import _HAS_CORR_LIB
+from fit_dcs.core.lib_loader import ASYNC_CORR_LIB
 
 
 class DataLoaderALV:
@@ -19,8 +19,8 @@ class DataLoaderALV:
 
     Reads the data from the files that make up a single measurement and stores it in the class attributes:
     - countrate: Array of shape (n_files, n_channels) containing the countrate for each channel in each file.
-    - tau: Array of shape (n_bins,) containing the time delays.
-    - g2_norm: Array of shape (n_bins, n_files, n_channels) containing the normalized g2 data.
+    - tau: Array of shape (n_bins) containing the time delays.
+    - g2_norm: Array of shape (n_files, n_channels, n_bins) containing the normalized g2 data.
     - integration_time: Integration time [s].
     """
     N_BINS = 199 # ALV correlator has 199 time bins
@@ -37,7 +37,7 @@ class DataLoaderALV:
         # Initialize the data arrays
         self.countrate = np.empty((len(self), self.n_channels))
         self.tau = np.empty(self.N_BINS)
-        self.g2_norm = np.empty((self.N_BINS, len(self), self.n_channels))
+        self.g2_norm = np.empty((len(self), self.n_channels, self.N_BINS))
         self.integration_time = np.nan # Integration time [s]
 
     def __len__(self):
@@ -59,12 +59,12 @@ class DataLoaderALV:
             if iteration == 0:
                 self.tau = data["tau"]
                 self.integration_time = data["integration_time"]
-            self.g2_norm[:, iteration, :] = data["g2_norm"]
+            self.g2_norm[iteration, :, :] = data["g2_norm"]
 
             # Plot the g2 data if requested
             if plot_interval > 0 and iteration % plot_interval == 0:
                 for channel in range(self.n_channels):
-                    plt.semilogx(self.tau, self.g2_norm[:, iteration, channel],
+                    plt.semilogx(self.tau, self.g2_norm[iteration, channel, :],
                                  label=f"Channel {channel}")
                 plt.xlabel("Tau [s]")
                 plt.ylabel("g2")
@@ -82,8 +82,8 @@ class DataLoaderTimeTagger:
     autocorrelation according to the specified integration time and stores it in the class attributes:
     - countrate: Array of shape (n_iterations, len(channels)) containing the countrate for each channel in each
         iteration.
-    - tau: Array of shape (n_bins,) containing the time delays.
-    - g2_norm: Array of shape (n_bins, n_iterations, len(channels)) containing the normalized g2 data.
+    - tau: Array of shape (n_bins) containing the time delays.
+    - g2_norm: Array of shape (n_iterations, len(channels), n_bins) containing the normalized g2 data.
     """
     T0 = 1e-12 # Time resolution of the Time Tagger [s]
 
@@ -117,7 +117,7 @@ class DataLoaderTimeTagger:
         p, m, s = self.correlator_args['p'], self.correlator_args['m'], self.correlator_args['s']
         n_bins = (p - p // m) * s
         self.tau = np.zeros(n_bins)
-        self.g2_norm = np.empty((n_bins, len(self), len(self.channels)))
+        self.g2_norm = np.empty((len(self), len(self.channels), n_bins))
 
     def __len__(self):
         """
@@ -193,13 +193,13 @@ class DataLoaderTimeTagger:
                     i_channel, g2_norm_out, tau_out, countrate_out = future.result()
                     if idx_iteration == 0:
                         self.tau = tau_out
-                    self.g2_norm[:, idx_iteration, i_channel] = g2_norm_out
+                    self.g2_norm[idx_iteration, i_channel, :] = g2_norm_out
                     self.countrate[idx_iteration, i_channel] = countrate_out
 
                 # Plot the g2 data if requested
                 if plot_interval > 0 and idx_iteration % plot_interval == 0:
                     for i_channel, n_channel in enumerate(self.channels):
-                        plt.semilogx(self.tau, self.g2_norm[:, idx_iteration, i_channel],
+                        plt.semilogx(self.tau, self.g2_norm[idx_iteration, i_channel, :],
                                      label=f"Channel {n_channel}")
                     plt.xlabel("Tau [s]")
                     plt.ylabel("g2")
@@ -212,7 +212,7 @@ class DataLoaderTimeTagger:
 
     def _process_channel(self, i_channel, tt):
         countrate_out = countrate(tt[i_channel], self.T0)
-        if _HAS_CORR_LIB:
+        if ASYNC_CORR_LIB is not None:
             g2_norm_out, tau_out = async_corr_c(
                 np.array(tt[i_channel]),
                 **self.correlator_args
@@ -264,7 +264,7 @@ def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
         # The next lines contain tau and the g2 for each channel, until you find an empty line. Note that the
         # file might have fewer lines than the expected n_bins, typically for the last iteration.
         tau = np.empty(n_bins)
-        g2_norm = np.empty((n_bins, n_ch))
+        g2_norm = np.empty((n_ch, n_bins))
         for i_bin in range(n_bins):
             line = file.readline()
             if not line:
@@ -272,7 +272,7 @@ def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:
             values = line.encode("utf-8").split()
             tau[i_bin] = float(values[0])
             for ch in range(n_ch):
-                g2_norm[i_bin, ch] = float(values[ch + 1])
+                g2_norm[ch, i_bin] = float(values[ch + 1])
 
     # The correlator saves g2 - 1, so we need to add 1 to get the normalized g2
     g2_norm += 1
@@ -293,21 +293,19 @@ def weigh_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
     """
     Calculate the weighted mean of g2_norm using the countrate as weights.
 
-    :param g2_norm: Array of shape (n_bins, n_iterations, n_channels) containing the normalized g2 data.
+    :param g2_norm: Array of shape (n_iterations, n_channels, n_bins) containing the normalized g2 data.
     :param countrate: Array of shape (n_iterations, n_channels) containing the countrate for each channel in each
         iteration.
-    :return: Array of shape (n_bins, n_iterations) containing the weighted mean of g2_norm for each iteration.
+    :return: Array of shape (n_iterations, n_bins) containing the weighted mean of g2_norm for each iteration.
     """
     # Reshape countrate for broadcasting
     weights = countrate[:, :, np.newaxis]  # Shape: (n_iterations, n_channels, 1)
-    # Transpose g2_norm to align dimensions for broadcasting
-    g2_transposed = g2_norm.transpose(1, 2, 0)  # Shape: (n_iterations, n_channels, n_bins)
     # Weighted sum along axis 1 (n_channels), resulting shape: (n_iterations, n_bins)
-    weighted_sum = np.sum(g2_transposed * weights, axis=1)  # Shape: (n_iterations, n_bins)
+    weighted_sum = np.sum(g2_norm * weights, axis=1)  # Shape: (n_iterations, n_bins)
     # Sum of weights per iteration
     weight_sums = np.sum(countrate, axis=1)[:, np.newaxis]  # Shape: (n_iterations, 1)
     # Compute the weighted mean
-    g2_norm_mean = (weighted_sum / weight_sums).T  # Transpose back to (n_bins, n_iterations)
+    g2_norm_mean = weighted_sum / weight_sums
 
     return g2_norm_mean
 
@@ -315,7 +313,8 @@ def weigh_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
 if __name__ == '__main__':
     import time
     from fit_dcs.utils.timetagger import get_correlator_architecture
-    file = "../../../examples/data/TERm1010.ttbin"
+
+    file = "../../../examples/data/software_corr/2024-05-07_Pulsatility_forearm.ttbin"
     m = 2
     (p, s) = get_correlator_architecture(alpha=7, m=m, tau_max=1e-2, t0=1e-12)
     loader = DataLoaderTimeTagger(
@@ -329,5 +328,5 @@ if __name__ == '__main__':
         tau_start=1e-7
     )
     start_time = time.time()
-    loader.load_data()
+    loader.load_data(plot_interval=10)
     print(f"Data loaded in {time.time() - start_time:.2f} seconds.")

@@ -1,10 +1,11 @@
 import argparse
 import yaml
-import fit_dcs.inverse.fit_homogeneous as fit_hom
+import fit_dcs.inverse.fit as fit_hom
 from fit_dcs.forward.homogeneous_semi_inf import g1_norm
 from fit_dcs.utils.data_loaders import weigh_g2
 from pathlib import Path
 import numpy as np
+
 
 def main():
     parser = argparse.ArgumentParser(description="Fit DCS data with homogeneous semi-infinite model")
@@ -46,8 +47,8 @@ def main():
 
     msd_model = fit_hom.MSDModelFit(
         model_name="brownian",
-        param_init={"db": config["fitting"]["db_init"]},
-        param_bounds={"db": config["fitting"]["db_bounds"]},
+        params_init={"db": config["fitting"]["db_init"]},
+        params_bounds={"db": config["fitting"]["db_bounds"]},
     )
 
     tau_lims_fit = config["fitting"]["tau_lims_fit"]
@@ -63,13 +64,11 @@ def main():
         print(f"Processing file {file}")
         data = np.load(file)
         tau = data["tau"]
-        g2_norm_multi = data["g2_norm"][..., channels_idx]
-        countrate = data["countrate"][..., channels_idx]
+        g2_norm_multi = data["g2_norm"][:, channels_idx, :]
+        countrate = data["countrate"][:, channels_idx]
         g2_norm = weigh_g2(g2_norm_multi, countrate)
 
-        fitter = fit_hom.FitHomogeneous(
-            tau,
-            g2_norm,
+        fitter = fit_hom.Fitter(
             g1_norm,
             msd_model,
             beta_calculator,
@@ -81,7 +80,7 @@ def main():
             n=n,
             lambda0=lambda0
         )
-        fit_results = fitter.fit()
+        fit_results = fitter.fit(tau, g2_norm)
 
         # Save results
         output_dir = Path(config["output"]["directory"])

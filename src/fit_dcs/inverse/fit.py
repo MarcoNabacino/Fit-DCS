@@ -557,11 +557,11 @@ class Fitter:
             text = rf"$\beta$ = {beta[j]:.2f}"
             ax.annotate(text, xy=(0.05, 0.20), xycoords="axes fraction", fontsize=10, verticalalignment="top",
                         bbox=dict(boxstyle="round", facecolor="white", alpha=0.5))
-            ax.set_ylabel(r"$g^{(2)}(\tau)$")
+            ax.set_ylabel(r"$g_2(\tau)$")
             ax.legend()
         ax.set_xlabel(r"$\tau$ [s]")
         fig.suptitle(f"Iteration {i}\n"
-                     f"{' ,'.join([f'{param}={msd_params[param]:.2e}' for param in msd_params])}")
+                     f"{', '.join([f'{param}={msd_params[param]:.2e}' for param in msd_params])}")
 
         return fig
 

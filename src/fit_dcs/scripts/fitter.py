@@ -1,6 +1,6 @@
 import argparse
 import yaml
-import fit_dcs.inverse.fit_homogeneous as fit_hom
+import fit_dcs.inverse.fit as fit_hom
 from fit_dcs.forward.homogeneous_semi_inf import g1_norm
 from fit_dcs.utils.data_loaders import weigh_g2
 from pathlib import Path
@@ -68,7 +68,7 @@ def main():
         countrate = data["countrate"][:, channels_idx]
         g2_norm = weigh_g2(g2_norm_multi, countrate)
 
-        fitter = fit_hom.FitHomogeneous(
+        fitter = fit_hom.Fitter(
             g1_norm,
             msd_model,
             beta_calculator,

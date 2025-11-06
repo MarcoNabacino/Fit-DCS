@@ -97,7 +97,7 @@ class BetaCalculator:
 
         :param mode: The mode of the beta calculation. Either "fixed", "raw", or "fit".
         :param kwargs: Additional arguments depending on the mode. Specific arguments are:
-            - If mode is "fixed", then beta_fixed should be a float.
+            - If mode is "fixed", then beta_fixed should be a float or a tuple of floats (for multi-curve fitting).
             - If mode is "raw", then tau_lims should be an ordered pair of floats.
             - If mode is "fit", then beta_init should be a float and beta_bounds (optional) should be a 2-tuple
                 specifying the lower and upper bounds of the beta parameter. Use None rather than inf for no bound.
@@ -107,27 +107,15 @@ class BetaCalculator:
         # Check mode and set the corresponding attributes
         if mode == "fixed":
             if "beta_fixed" in kwargs:
-                # Check that beta_fixed is a float
-                if isinstance(kwargs["beta_fixed"], (float, int)):
-                    self.beta_fixed = kwargs["beta_fixed"]
-                    # Warn the user if beta_fixed is outside the range [0, 1]
-                    if self.beta_fixed < 0 or self.beta_fixed > 1:
-                        print("Warning: beta_fixed should be in the range [0, 1]")
-                else:
-                    raise ValueError("beta_fixed should be a float")
+                self.beta_fixed = kwargs["beta_fixed"]
             else:
                 raise ValueError("beta_fixed should be provided for the 'fixed' mode")
         elif mode == "raw":
             if "tau_lims" in kwargs:
-                # Check that tau_lims is an ordered pair of floats
-                if isinstance(kwargs["tau_lims"], (tuple, list)) and len(kwargs["tau_lims"]) == 2:
-                    if (all(isinstance(x, (float, int)) for x in kwargs["tau_lims"])) and kwargs["tau_lims"][0] < \
-                            kwargs["tau_lims"][1]:
-                        self.tau_lims = kwargs["tau_lims"]
-                    else:
-                        raise ValueError("tau_lims should be an ordered pair of floats")
+                if kwargs["tau_lims"][0] < kwargs["tau_lims"][1]:
+                    self.tau_lims = kwargs["tau_lims"]
                 else:
-                    raise ValueError("tau_lims should be an ordered pair of floats")
+                    raise ValueError("tau_lims should be sorted in ascending order")
             else:
                 raise ValueError("tau_lims should be provided for the 'raw' mode")
         elif mode == "fit":
@@ -160,11 +148,10 @@ class BetaCalculator:
         self.mode = mode
 
 
-class FitHomogeneous:
+class Fitter:
     """
-    A class for fitting the normalized second-order autocorrelation functions g2_norm using a homogeneous model for an
-    arbitrary geometry (e.g., semi-infinite, laterally infinite slab, etc.) and a mean-square displacement (MSD) model
-    (e.g., Brownian, ballistic, hybrid).
+    A class for fitting the normalized second-order autocorrelation functions g2_norm for an arbitrary geometry
+    and mean-square displacement (MSD) models (e.g., Brownian, ballistic, hybrid).
     """
 
     def __init__(
@@ -182,8 +169,10 @@ class FitHomogeneous:
         :param g1_norm_fn: A function that calculates the normalized first-order autocorrelation function g1_norm
             based on the MSD model. This should be one of the functions defined in the forward module. The function
             has the signature g1_norm_model(msd, **g1_args), where msd is the mean-square displacement of the
-            scatterers, and **g1_args are the additional arguments needed for the function.
-        :param msd_model: An instance of the MSDModel class or a tuple of multiple instances (for non-homogeneous
+            scatterers, and **g1_args are the additional arguments needed for the function. For homogeneous models,
+            msd is a 1D array of shape (len(tau),), while for non-homogeneous models (e.g., bilayer model), msd is an
+            array of shape (n_media, len(tau)), where n_media is the number of media in the model.
+        :param msd_model: An instance of the MSDModelFit class or a tuple of multiple instances (for non-homogeneous
             models such as a bilayer model). In the latter case, each instance corresponds to a different medium.
         :param beta_calculator: An instance of the BetaCalculator class.
         :param tau_lims_fit: Ordered pair of floats defining the lower and upper limits of the time delays used for
@@ -210,8 +199,8 @@ class FitHomogeneous:
 
         self.g1_norm_fn = g1_norm_fn
 
-        # Get number of multi-curves from g1_args. Additionally, check that, for g1_args that are tuples,
-        # all tuples have the same length
+        # Get number of multi-curves from g1_args and check that, for g1_args that are tuples,
+        # all tuples have the same length.
         self.n_multi = 1
         for key, value in g1_args.items():
             if isinstance(value, tuple):
@@ -223,15 +212,25 @@ class FitHomogeneous:
         for key, value in g1_args.items():
             if not isinstance(value, tuple):
                 g1_args[key] = self.n_multi * (value,)
-
         self.g1_args = g1_args
+
         if isinstance(msd_model, tuple):
             self.n_media = len(msd_model)
             self.msd_models = msd_model
         elif isinstance(msd_model, MSDModelFit):
             self.n_media = 1
             self.msd_models = (msd_model,)
+        # Check that, for fixed mode of beta calculation, beta_fixed is either a float or a tuple
+        # of floats of length n_multi. Adjust beta_fixed to be a tuple in the former case.
+        if beta_calculator.mode == "fixed":
+            if isinstance(beta_calculator.beta_fixed, (int, float)):
+                beta_calculator.beta_fixed = self.n_multi * (beta_calculator.beta_fixed,)
+            else:
+                if len(beta_calculator.beta_fixed) != self.n_multi:
+                    raise ValueError("For 'fixed' mode, beta_fixed should be either a float or a tuple of floats "
+                                     "of length equal to the number of multi-curves")
         self.beta_calculator = beta_calculator
+
         self.g2_lim_fit = g2_lim_fit
 
         # Initialize the beta, fitted_params, and chi2 attributes.
@@ -309,7 +308,8 @@ class FitHomogeneous:
         """
         n_iter = g2_norm.shape[0]
         if self.beta_calculator.mode == "fixed":
-            return np.full((n_iter, self.n_multi), self.beta_calculator.beta_fixed)
+            # Create 2D array by repeating beta_fixed for all iterations
+            return np.tile(self.beta_calculator.beta_fixed, (n_iter, 1))
 
         if self.beta_calculator.mode == "raw":
             idx_first = np.argmax(tau > self.beta_calculator.tau_lims[0])  # First index after the lower limit
@@ -442,6 +442,8 @@ class FitHomogeneous:
             beta = np.full(self.n_multi, np.nan) if self.beta_calculator.mode == "fit" else self.beta[i, :]
             chi2 = np.nan
             r2 = np.nan
+            print(f"Warning: fit did not converge for iteration {i}.\n"
+                  f"{res.message}")
 
         return msd_params_dict, beta, chi2, r2
 
@@ -608,41 +610,54 @@ class FitHomogeneous:
 
 
 if __name__ == "__main__":
-    import fit_dcs.forward.homogeneous_semi_inf as hsi
+    import fit_dcs.forward.bilayer as bilayer
 
     tau = np.logspace(-7, -2, 200)
-    db_true = 5e-8
-    mua = 0.1
-    musp = 10
+    db_up = 5e-9
+    db_dn = 1e-8
+    mua_up = 0.045
+    mua_dn = 0.2
+    musp_up = 8
+    musp_dn = 10
     n = 1.4
+    d = 0.8
     rho = (1.5, 2.5)
     lambda0 = 785
     beta_true = 0.5
-    msd_true = common.msd_brownian(tau, db_true)
     n_iter = 5
+    q_max = 80
+
     g1_norm_true = np.empty((n_iter, len(rho), len(tau)))
     for j in range(len(rho)):
-        g1_norm_true[:, j, :] = hsi.g1_norm(msd_true, mua, musp, rho[j], n, lambda0)
+        msd_up = common.msd_brownian(tau, db_up)
+        msd_dn = common.msd_brownian(tau, db_dn)
+        msd = np.vstack((msd_up, msd_dn))
+        g1_norm_true[:, j, :] = bilayer.g1_norm(msd, mua_up, mua_dn, musp_up, musp_dn, n, d, rho[j], lambda0, q_max)
     g2_norm_true = 1 + beta_true * g1_norm_true ** 2
 
     # Add fake noise to the g2_norm curve
     noise_level = 0.02
     g2_norm_noisy = np.random.normal(g2_norm_true, noise_level)
 
-    msd_model = MSDModelFit(model_name="brownian", params_init={"db": 1e-8},
-                            params_bounds={"db": (0, None)})
-    beta_calculator = BetaCalculator(mode="fit", beta_init=0.48, beta_bounds=(0, 1))
-    fitter = FitHomogeneous(
-        g1_norm_fn=hsi.g1_norm,
+    msd_model_up = MSDModelFit(model_name="brownian", params_init={"db": 1e-8}, params_bounds={"db": (0, None)})
+    msd_model_dn = MSDModelFit(model_name="brownian", params_init={"db": 1e-8}, params_bounds={"db": (0, None)})
+    msd_model = (msd_model_up, msd_model_dn)
+    beta_calculator = BetaCalculator(mode="fixed", beta_fixed=0.5)
+    fitter = Fitter(
+        g1_norm_fn=bilayer.g1_norm,
         msd_model=msd_model,
         beta_calculator=beta_calculator,
         tau_lims_fit=(1e-7, 1e-2),
         g2_lim_fit=1.13,
-        mua=mua,
-        musp=musp,
+        mua_up=mua_up,
+        mua_dn=mua_dn,
+        musp_up=musp_up,
+        musp_dn=musp_dn,
         n=n,
+        d=d,
         rho=rho,
-        lambda0=lambda0
+        lambda0=lambda0,
+        q_max=q_max
     )
-    results_df = fitter.fit(tau, g2_norm_noisy, plot_interval=1)
+    results_df = fitter.fit(tau, g2_norm_noisy, plot_interval=0)
     print(results_df)

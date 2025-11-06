@@ -42,14 +42,18 @@ need the `TimeTagger` library from Swabian Instruments, which is available at
 If `TimeTagger` is not installed, time-tag data loading will not be available, but the rest of Fit-DCS will work
 normally.
 
-### Optional C software correlator
+### Optional C libraries (Linux and macOS)
 
-The software correlator is implemented in C for speed.
-For Windows users, a precompiled version of the C library is already included in the repository and gets automatically
-used by the package. Of course, you can also compile it yourself if you want.
+Some performance-critical components are implemented in C for speed. For Windows users, these libraries are already
+precompiled and shipped with the package, which will load them automatically.
 
-Linux and macOS users need to compile it manually using CMake. Until then, the package will automatically fall back
-to a slower Python implementation.
+Linux and macOS users need to compile the C libraries manually. Until then, Fit-DCS will automatically fall back to
+slower Python implementations with a warning message. Note that the libraries should be built before installing the
+package. If you build or rebuild them after installation, you'll need to reinstall the package in order for Python to
+pick up the new binaries:
+```bash
+pip install --force-reinstall .
+```
 
 #### Prerequisites
 - CMake (version 3.31 or higher)
@@ -58,28 +62,27 @@ to a slower Python implementation.
 - A C compiler
   - macOS: Xcode Command Line Tools (`xcode-select --install`)
   - Linux: `gcc` or `clang` (usually pre-installed)
+- (only for `bilayer`) GNU Scientific Library (GSL)
+  - macOS: `brew install gsl`
+  - Ubuntu/Debian: `sudo apt install libgsl-dev`
 
-#### Compilation steps
+#### Build steps
 1. Open a terminal in the [`c_lib`](./c_lib) folder.
-2. Create a build directory and navigate into it:
+2. Create and enter a build directory:
    ```bash
    mkdir build
    cd build
    ```
-3. Run CMake to configure the build:
+3. Configure CMake:
    ```bash
-   cmake ..
+   cmake .. -DCMAKE_BUILD_TYPE=Release
    ```
-4. Compile the library:
+4. Build the libraries:
    ```bash
-   cmake --build . --config Release
+   cmake --build .
    ```
-5. After a successful build, the compiled library will be automatically copied into the `lib/` folder:
-- macOS: `../src/fit_dcs/lib/libasync_corr.dylib`
-- Linux: `../src/fit_dcs/lib/libasync_corr.so`
-- Windows: `../src/fit_dcs/lib/async_corr.dll` (already included)
-
-Fit-DCS will then detect and use the compiled library automatically.
+5. After a successful build, the compiled library will be automatically copied to the `../src/fit_dcs/lib/` folder.
+Fit-DCS will then detect and use the libraries automatically at runtime.
 
 ---
 
@@ -95,9 +98,9 @@ relative paths.
 
 ### Command-line scripts
 Fit-DCS is intended to be used as a library, but it also provides some command-line scripts for common tasks. These
-are installed automatically when you install the package via `pip`:
+are installed automatically with the package:
 - `fitdcs-corr`: Compute autocorrelations from time-tagger data files.
-- `fitdcs-fit`: Fit DCS data created by `fitdcs-corr` with the nonlinear solver, using the semi-infinite forward model.
+- `fitdcs-fit`: Fit DCS data created by `fitdcs-corr` with the nonlinear solver, using the semi-infinite model.
 
 Keep in mind that these scripts are basic and do not cover all use cases. For more complex analyses, it's recommended
 to use the library directly in your own Python scripts or Jupyter notebooks.
@@ -114,3 +117,18 @@ All scripts require a YAML configuration file specifying parameters such as inpu
 directories. Example configuration files showing the available options are provided in the
 [`examples/yaml/`](./examples/yaml) folder for reference, but you should create your own based on your
 specific data and analysis needs.
+
+---
+
+## License and citation
+
+Fit-DCS is distributed under the **GNU General Public License v3.0 (GPLv3)**.
+This means you are free to use, modify, and redistribute the software, provided that derivative works are also released
+under the same license.
+
+If you use this software in your research, please cite:
+
+**Nabacino, M. (2025). Fit-DCS: A Python toolbox for Diffuse Correlation Spectroscopy analysis.**
+GitHub: [https://github.com/marconabacino/Fit-DCS](https://github.com/marconabacino/Fit-DCS)
+
+A formal citation entry is also available in the [`CITATION.cff`](./CITATION.cff) file.

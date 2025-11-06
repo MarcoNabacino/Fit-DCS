@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Fit-DCS: A Python toolbox for Diffuse Correlation Spectroscopy analysis"
+authors:
+  - family-names: Nabacino
+    given-names: Marco
+    affiliation: "Politecnico di Milano, Department of Physics, Milan, Italy"
+    orcid: "https://orcid.org/0009-0009-8055-4364"
+date-released: 2025-11-06
+version: 2.0.0
+license: GPL-3.0-only
+repository-code: "https://github.com/marconabacino/Fit-DCS"
+url: "https://github.com/marconabacino/Fit-DCS"
+keywords:
+  - DCS
+  - Diffuse Correlation Spectroscopy
+  - Biomedical optics
+  - Python

@@ -121,7 +121,7 @@ def g1_norm(msd: np.ndarray, mua_up: float, mua_dn: float,
     :param rho: Source-detector separation. [cm]
     :param lambda0: Wavelength of the light source. [nm]
     :param q_max: Maximum spatial frequency for the integration. [1/cm]
-    :return: The normalized first-order autocorrelation function G1. A vector the same length as tau.
+    :return: The normalized first-order autocorrelation function g1. A vector the same length as tau.
     """
     norm = g1(np.zeros_like(msd), mua_up, mua_dn, musp_up, musp_dn, n, d, rho, lambda0, q_max)
     return g1(msd, mua_up, mua_dn, musp_up, musp_dn, n, d, rho, lambda0, q_max) / norm

@@ -24,6 +24,8 @@ import scipy.optimize as opt
 import matplotlib.pyplot as plt
 import pandas as pd
 import warnings
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
 
 
 class MSDModelFit:
@@ -258,7 +260,7 @@ class Fitter:
         self.chi2 = None
         self.r2 = None
 
-    def fit(self, tau, g2_norm, plot_interval: int = 0) -> pd.DataFrame:
+    def fit(self, tau, g2_norm, num_workers: int = 1, plot_interval: int = 0) -> pd.DataFrame:
         """
         Fits the model to the data and returns the results as a DataFrame.
 
@@ -267,6 +269,7 @@ class Fitter:
             iterations, second dimension is multi-curves (if any), third dimension is time delays.
         :param plot_interval: If not 0, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations. Default is 0 (no plots).
+        :param num_workers: Number of parallel workers to use for fitting. Default is 1 (no parallelization).
         :return: A DataFrame with the fitted MSD parameters (column names: 'db' and/or 'v_ms' ), 'beta', 'chi2',
             and 'r2' for each iteration.
         """
@@ -280,6 +283,7 @@ class Fitter:
         if g2_norm.shape[-1] != len(tau):
             raise ValueError("Shape mismatch: g2_norm should have the same number of columns as the length of tau")
 
+        # Preallocate result arrays
         self.beta = np.full((n_iter, self.n_multi), np.nan)
         self.msd_params_dict = {}
         for k in range(self.n_media):
@@ -290,11 +294,23 @@ class Fitter:
         self.chi2 = np.full(n_iter, np.nan)
         self.r2 = np.full(n_iter, np.nan)
 
+        # Calculate beta if needed
         if self.beta_calculator.mode in ["fixed", "raw"]:
             self.beta = self._calc_beta(tau, g2_norm)
 
-        for i in range(n_iter):
-            curr_params, self.beta[i, :], self.chi2[i], self.r2[i] = self._process_iteration(i, tau, g2_norm)
+        # Sequential or parallel execution
+        if num_workers == 1:
+            results = (self._fit_one(i, tau, g2_norm) for i in range(n_iter))
+        else:
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                futures = {executor.submit(self._fit_one, i, tau, g2_norm): i for i in range(n_iter)}
+                results = (f.result() for f in tqdm(as_completed(futures), total=n_iter))
+
+        # Collect results
+        for i, curr_params, beta_i, chi2_i, r2_i in results:
+            self.beta[i, :] = beta_i
+            self.chi2[i] = chi2_i
+            self.r2[i] = r2_i
             for param in curr_params:
                 self.msd_params_dict[param][i] = curr_params[param]
 
@@ -314,6 +330,12 @@ class Fitter:
         df["r2"] = self.r2
 
         return df
+
+    def _fit_one(self, i, tau, g2_norm):
+        """
+        Wrapper for multiprocessing that fits a single iteration.
+        """
+        return i, *self._process_iteration(i, tau, g2_norm)
 
     def _calc_beta(self, tau, g2_norm):
         """
@@ -643,7 +665,7 @@ if __name__ == "__main__":
     rho = (1.5, 2.5)
     lambda0 = 785
     beta_true = 0.5
-    n_iter = 5
+    n_iter = 20
     q_max = 80
 
     g1_norm_true = np.empty((n_iter, len(rho), len(tau)))
@@ -678,5 +700,5 @@ if __name__ == "__main__":
         lambda0=lambda0,
         q_max=q_max
     )
-    results_df = fitter.fit(tau, g2_norm_noisy, plot_interval=0)
+    results_df = fitter.fit(tau, g2_norm_noisy, num_workers=10, plot_interval=0)
     print(results_df)

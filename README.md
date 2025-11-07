@@ -8,7 +8,7 @@ A Python package for analysis of Diffuse Correlation Spectroscopy (DCS) data.
 - Forward models for several geometries
 - Inverse solvers (nonlinear fitting, Modified Beer-Lambert law) for analysis of experimental data
 - Utility functions for data loading, noise modeling, motion artifact correction, and correlation calculation
-- C library integration for performance-critical computations (i.e., calculation of autocorrelation from time-tag data)
+- C library integration for performance-critical computations (e.g., calculation of autocorrelation from time-tag data)
 
 ---
 

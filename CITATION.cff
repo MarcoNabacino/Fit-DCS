@@ -6,8 +6,8 @@ authors:
     given-names: Marco
     affiliation: "Politecnico di Milano, Department of Physics, Milan, Italy"
     orcid: "https://orcid.org/0009-0009-8055-4364"
-date-released: 2025-11-06
-version: 2.0.0
+date-released: 2025-11-10
+version: 2.1.1
 license: GPL-3.0-only
 repository-code: "https://github.com/marconabacino/Fit-DCS"
 url: "https://github.com/marconabacino/Fit-DCS"

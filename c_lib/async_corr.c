@@ -103,13 +103,13 @@ void async_corr(
         weights[i] = 1;
     }
     const int64_t dt = t[n_tags - 1] - t[0]; // Measurement duration
-    const int64_t shift_start = (int64_t)(tau_start / t0); // Start time for the correlation in time tagger units
-
     const double mean_rate = (double)n_tags / (double)dt; // Mean countrate of the measurement, needed for normalization
 
+    const int64_t shift_start = (int64_t)(tau_start / t0); // Start time for the correlation in time tagger units
+
     // Initialize output arrays
-    int64_t* autocorr = calloc(n_bins, sizeof(int64_t)); // Unnormalized autocorrelation
-    int64_t* autotime = malloc(n_bins * sizeof(int64_t)); // Autocorrelation time lags in time tagger units
+    int64_t* autocorr = calloc(n_bins, sizeof(int64_t));   // Unnormalized autocorrelation
+    int64_t* autotime = malloc(n_bins * sizeof(int64_t));  // Autocorrelation time lags in time tagger units
     int64_t* bin_width = malloc(n_bins * sizeof(int64_t)); // Width of each bin in time tagger units
 
     int64_t delta = 1; // Bin width in time tagger units
@@ -165,8 +165,8 @@ void async_corr(
             tau_index++;
         }
 
-        delta *= m; // Increase the bin width for the next stage
-        // Coarsen the time tags by a factor of m for the next stage
+        // Increase delta and coarsen time tags for the next stage
+        delta *= m;
         for (int i = 0; i < n_tags; i++) {
             t[i] /= m;
         }

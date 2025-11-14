@@ -17,12 +17,11 @@
 """
 
 
-from typing import Dict, Callable, Literal
+from typing import Dict, Callable, Literal, Any
 import numpy as np
 import fit_dcs.forward.common as common
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
-import pandas as pd
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
@@ -260,7 +259,7 @@ class Fitter:
         self.chi2 = None
         self.r2 = None
 
-    def fit(self, tau, g2_norm, num_workers: int = 1, plot_interval: int = 0) -> pd.DataFrame:
+    def fit(self, tau, g2_norm, num_workers: int = 1, plot_interval: int = 0) -> Dict:
         """
         Fits the model to the data and returns the results as a DataFrame.
 
@@ -270,7 +269,7 @@ class Fitter:
         :param plot_interval: If not 0, a plot showing the g2_norm curves and the fitted curves is displayed every
             plot_interval iterations. Default is 0 (no plots).
         :param num_workers: Number of parallel workers to use for fitting. Default is 1 (no parallelization).
-        :return: A DataFrame with the fitted MSD parameters (column names: 'db' and/or 'v_ms' ), 'beta', 'chi2',
+        :return: A dictionary with the fitted MSD parameters (column names: 'db' and/or 'v_ms' ), 'beta', 'chi2',
             and 'r2' for each iteration.
         """
         # Expand g2_norm to 3D if it is 2D and check shape consistency
@@ -319,17 +318,17 @@ class Fitter:
                 f.show()
 
         # Create a DataFrame with the fitted parameters and beta
-        df = pd.DataFrame(self.msd_params_dict)
+        results_dict = self.msd_params_dict.copy()
         # Create 1 column per multi-curve to save beta
         if self.n_multi == 1:
-            df["beta"] = np.squeeze(self.beta)
+            results_dict["beta"] = np.squeeze(self.beta)
         else:
             for j in range(self.n_multi):
-                df[f"beta_{j}"] = self.beta[:, j]
-        df["chi2"] = self.chi2
-        df["r2"] = self.r2
+                results_dict[f"beta_{j}"] = self.beta[:, j]
+        results_dict["chi2"] = self.chi2
+        results_dict["r2"] = self.r2
 
-        return df
+        return results_dict
 
     def _fit_one(self, i, tau, g2_norm):
         """
@@ -700,5 +699,5 @@ if __name__ == "__main__":
         lambda0=lambda0,
         q_max=q_max
     )
-    results_df = fitter.fit(tau, g2_norm_noisy, num_workers=10, plot_interval=0)
-    print(results_df)
+    results = fitter.fit(tau, g2_norm_noisy, num_workers=10, plot_interval=0)
+    print(results)

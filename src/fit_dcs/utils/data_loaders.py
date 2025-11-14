@@ -322,7 +322,7 @@ def weigh_g2(g2_norm: np.ndarray, countrate: np.ndarray) -> np.ndarray:
     # Weighted sum along axis 1 (n_channels), resulting shape: (n_iterations, n_bins)
     weighted_sum = np.sum(g2_norm * weights, axis=1)  # Shape: (n_iterations, n_bins)
     # Sum of weights per iteration
-    weight_sums = np.sum(countrate, axis=1)[:, np.newaxis]  # Shape: (n_iterations, 1)
+    weight_sums = np.sum(countrate, axis=1, keepdims=True)  # Shape: (n_iterations, 1)
     # Compute the weighted mean
     g2_norm_mean = weighted_sum / weight_sums
 

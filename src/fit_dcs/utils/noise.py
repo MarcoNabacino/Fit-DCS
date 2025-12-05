@@ -121,6 +121,8 @@ class NoiseAdder:
             iterations, second dimension is time delays.
         :return: The noisy g2_norm. A matrix the same size as g2_norm.
         """
+        g2_norm = np.atleast_2d(g2_norm)
+
         # Check that the number of columns in g2_norm is the same as the length of tau
         if g2_norm.shape[-1] != len(tau):
             raise ValueError("The number columns in g2_norm should be the same as the length of tau")
@@ -161,7 +163,7 @@ class NoiseAdder:
             # Add noise to the g2 curve
             g2_norm_noisy[i, :] = np.random.normal(g2_norm[i, :], sigma_g2)
 
-        return g2_norm_noisy
+        return np.squeeze(g2_norm_noisy)
 
     @staticmethod
     def _fit_tau_c(tau: np.ndarray, g2_norm_single: np.ndarray, tau_lim: float, beta: float) -> float:

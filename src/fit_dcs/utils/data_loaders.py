@@ -37,9 +37,9 @@ class DataLoaderALV:
     Data loader for .asc files created by the ALV7004/USB-FAST correlator.
 
     Reads the data from the files that make up a single measurement and stores it in the class attributes:
-    - countrate: Array of shape (n_files, n_channels) containing the countrate for each channel in each file.
     - tau: Array of shape (n_bins) containing the time delays.
     - g2_norm: Array of shape (n_files, n_channels, n_bins) containing the normalized g2 data.
+    - countrate: Array of shape (n_files, n_channels) containing the countrate for each channel in each file.
     - integration_time: Integration time [s].
     """
     N_BINS = 199 # ALV correlator has 199 time bins
@@ -54,10 +54,10 @@ class DataLoaderALV:
         self.n_channels = n_channels
 
         # Initialize the data arrays
-        self.countrate = np.empty((len(self), self.n_channels))
         self.tau = np.empty(self.N_BINS)
         self.g2_norm = np.empty((len(self), self.n_channels, self.N_BINS))
-        self.integration_time = np.nan # Integration time [s]
+        self.countrate = np.empty((len(self), self.n_channels))
+        self.integration_time = np.nan  # Integration time [s]
 
     def __len__(self):
         """
@@ -91,6 +91,19 @@ class DataLoaderALV:
                 plt.title(f"Iteration {iteration}")
                 plt.legend()
                 plt.show()
+
+    def get_data(self) -> Dict:
+        """
+        Return the loaded data as a dictionary.
+
+        :return: Dictionary containing the data. Keys are "tau", "g2_norm", "countrate", "integration_time".
+        """
+        return dict(
+            tau=self.tau,
+            g2_norm=self.g2_norm,
+            countrate=self.countrate,
+            integration_time=self.integration_time
+        )
 
 
 class DataLoaderTimeTagger:
@@ -242,6 +255,31 @@ class DataLoaderTimeTagger:
                 **self.correlator_args
             )
         return i_channel, g2_norm_out, tau_out, countrate_out
+
+    def get_data(self, full: bool = True) -> Dict:
+        """
+        Return the loaded data as a dictionary.
+
+        :param full: If True, return the full g2_norm array including all time delays. If False, only return
+            the g2_norm values corresponding to tau >= tau_start. Default is True.
+        :return: Dictionary containing the data. Keys are "tau", "g2_norm", "countrate", "integration_time".
+        """
+        if full:
+            return dict(
+                tau=self.tau,
+                g2_norm=self.g2_norm,
+                countrate=self.countrate,
+                integration_time=self.integration_time
+            )
+        else:
+            tau_start = self.correlator_args.get('tau_start', 0)
+            mask = self.tau >= tau_start
+            return dict(
+                tau=self.tau[mask],
+                g2_norm=self.g2_norm[:, :, mask],
+                countrate=self.countrate,
+                integration_time=self.integration_time
+            )
 
 
 def read_asc(filename, n_ch: int = 4, n_bins: int = 199) -> Dict:

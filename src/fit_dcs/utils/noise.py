@@ -118,24 +118,27 @@ class NoiseAdder:
 
         :param tau: Vector of time delays. [s]
         :param g2_norm: 2D array of normalized second-order autocorrelation functions. First dimension is
-            iterations, second dimension is time delays.
+            different curves (e.g., iterations), second dimension is time delays.
         :return: The noisy g2_norm. A matrix the same size as g2_norm.
         """
         g2_norm = np.atleast_2d(g2_norm)
 
         # Check that the number of columns in g2_norm is the same as the length of tau
         if g2_norm.shape[-1] != len(tau):
-            raise ValueError("The number columns in g2_norm should be the same as the length of tau")
+            raise ValueError("Last dimension of g2_norm should have the same length as tau."
+                             f"Got {g2_norm.shape[-1]} and {len(tau)}, respectively")
 
         # Check that number of iteration is consistent between g2_norm, countrate, and tau_lim
         if isinstance(self.countrate, np.ndarray):
             if g2_norm.shape[0] != len(self.countrate):
-                raise ValueError("g2_norm should have the same number of rows as the length of countrate")
+                raise ValueError(f"First dimension of g2_norm should have the same length as countrate."
+                                 f"Got {g2_norm.shape[0]} and {len(self.countrate)}, respectively")
         else:
             self.countrate = np.full(g2_norm.shape[0], self.countrate)
         if isinstance(self.tau_lim, np.ndarray):
             if g2_norm.shape[0] != len(self.tau_lim):
-                raise ValueError("g2_norm should have the same number of rows as the length of tau_lim")
+                raise ValueError("First dimension of g2_norm should have the same length as tau_lim."
+                                 f"Got {g2_norm.shape[0]} and {len(self.tau_lim)}, respectively")
         else:
             self.tau_lim = np.full(g2_norm.shape[0], self.tau_lim)
 

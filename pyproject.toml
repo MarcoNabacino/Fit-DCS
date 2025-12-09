@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "fit-dcs"
 version = "2.2.0"
 description = "A Python package for Diffuse Correlation Spectroscopy analysis."
+readme = "README.md"
+license = { file = "LICENSE" }
 authors = [
     { name = "Marco Nabacino", email = "marco.nabacino@polimi.it" }
 ]

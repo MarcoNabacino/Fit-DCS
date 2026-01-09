@@ -1,3 +1,7 @@
+<p align="left">
+    <img src="assets/logo.png" alt="Fit-DCS Logo" width="200">
+</p>
+
 # Fit-DCS
 
 A Python package for analysis of Diffuse Correlation Spectroscopy (DCS) data.

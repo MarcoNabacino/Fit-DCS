@@ -1,5 +1,5 @@
 <p align="left">
-    <img src="assets/logo.png" alt="Fit-DCS Logo" width="200">
+    <img src="assets/logo_rect.png" alt="Fit-DCS Logo" width="400">
 </p>
 
 # Fit-DCS

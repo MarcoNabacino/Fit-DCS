@@ -24,6 +24,7 @@ from fit_dcs.forward.homogeneous_semi_inf import g1_norm
 from fit_dcs.utils.data_loaders import weigh_g2
 from pathlib import Path
 import numpy as np
+import pandas as pd
 
 
 def main():
@@ -105,5 +106,5 @@ def main():
         output_dir = Path(config["output"]["directory"])
         output_dir.mkdir(parents=True, exist_ok=True)
         base_filename = Path(file).stem
-        fit_results.to_csv(output_dir / f"{base_filename}_fit.csv")
+        pd.DataFrame(fit_results).to_csv(output_dir / f"{base_filename}_fit.csv")
         print(f"Saved fitted data to {output_dir / f'{base_filename}_fit.csv'}")
